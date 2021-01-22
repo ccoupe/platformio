@@ -20,11 +20,11 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length);
 void mqtt_publish(char *topic, char *payload);
 void mqtt_homie_pub(String topic, String payload, bool retain); 
 
-char *wifi_id;
-char *wifi_password;
-char *mqtt_server;
+const char *wifi_id;
+const char *wifi_password;
+const char *mqtt_server;
 int  mqtt_port;
-char *mqtt_device;
+const char *mqtt_device;
 String hdevice;
 String hname;
 String hlname;
@@ -80,8 +80,8 @@ static void setup_wifi() {
   ipAddr = strdup(ipaddr.c_str());
 }
 
-void mqtt_setup(char *wid, char *wpw, char *mqsrv, int mqport, char* mqdev,
-    String hdev, char *hnm, int (*gcb)(), void (*scb)(int) ) {
+void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
+     const char* mqdev, String hdev, const char *hnm, int (*gcb)(), void (*scb)(int) ) {
 
   setDelayCBack = scb;
   getDelayCBack = gcb;
@@ -110,16 +110,24 @@ void mqtt_setup(char *wid, char *wpw, char *mqsrv, int mqport, char* mqdev,
   hlname.replace(" ", "_");
   hlname.replace("\t", "_");
 
+  /*hlname = strlwr(strdup(hname));
+  int i = 0;
+  for (i = 0; i < strlen(hlname); i++) {
+    if (hlname[i] == ' ' || hlname[i] == '\t')
+      hlname[i] = '_';
+  }
+  */
+
   setup_wifi();
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(mqtt_callback);
   mqtt_reconnect();
 
   // Create and Publish the infrastructure topics for Homie v3
-  // "homie/"HDEVICE"/$homie" -> "3.0.1"
   String hd = "homie/"+hdevice+"/";
+  // "homie/"HDEVICE"/$homie" -> "3.0.1"
   mqtt_homie_pub(hd + "$homie", "3.0.1", true);
-
+  Serial.println(hd);
   //"homie/"HDEVICE"/$name" -> hlname
   mqtt_homie_pub(hd + "$name", hlname, true);
 
@@ -153,8 +161,8 @@ void mqtt_setup(char *wid, char *wpw, char *mqsrv, int mqport, char* mqdev,
 #endif
 
   // Property 'motion' of 'motionsensor' node
-  // "homie/"HDEVICE"/motionsensor/motion/$name ->, Unsanitized hname
   String ms = "homie/"+hdevice+"/motionsensor/motion/";
+  // "homie/"HDEVICE"/motionsensor/motion/$name ->, Unsanitized hname
   mqtt_homie_pub(ms + "$name", hname, true); 
 
   // "homeie"HDEVICE"/motionsensor/motion/$datatype" -> "boolean"
@@ -235,7 +243,6 @@ void mqtt_reconnect() {
       client.subscribe(hsub.c_str());
       Serial.print("listening on topic ");
       Serial.println(hsub);
-      break;
 #endif
     } else {
       Serial.print("failed, rc=");

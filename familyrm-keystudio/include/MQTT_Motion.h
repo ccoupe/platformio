@@ -1,14 +1,15 @@
 #ifndef MQTT_MOTION_H
 #define MQTT_MOTION_H
-#include "Device.h"
-// Functions in MQTT_Ranger.cpp 
+
+// Functions in mqtt_lib.cpp 
 // Public functions:
 extern void mqtt_setup(const char *wusr, const char *wpw,
     const char *mqsrv, int mqport, const char* mqdev,
-    const char *hdev, const char *hnm, 
-    void (*ccb)(int, int),
-    void (*dcb)(boolean, String));
+    String hdev, const char *hnm, 
+    int (*gcb)(),
+    void (*scb)(int));
 extern void mqtt_loop();
-extern void mqtt_ranger_set_dist(int);
+extern void mqtt_homie_active(bool state);
+
 
 #endif

@@ -82,9 +82,8 @@ void delay_set(int val) {
 }
 
 void setup() {
-  //Serial.begin(115200);
-  Serial.begin(9600);
-  Serial.println("Starting");
+  Serial.begin(115200);
+ Serial.println("Starting");
 
 #ifdef USE_FLASH
   EEPROM.begin(EEPROM_SIZE);

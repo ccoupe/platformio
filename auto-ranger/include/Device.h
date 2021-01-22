@@ -6,7 +6,7 @@
 
 #define MQTT_SERVER "192.168.1.7"
 #define MQTT_PORT 1883
-#define MQTT_DEVICE "esp_trumpy_ranger"
+#define MQTT_DEVICE "esp32_trumpy_ranger"
 
 // For Homie compatible topic structure
 #define HDEVICE "trumpy_ranger"

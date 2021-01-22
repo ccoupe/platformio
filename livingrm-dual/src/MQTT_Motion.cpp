@@ -253,8 +253,8 @@ void mqtt_reconnect() {
       // Wait X seconds before retrying
       delay((cnt * len) * 1000);
       cnt = cnt * 2;
-      if (cnt > 256) 
-        cnt = 256;
+      if (cnt > 32) 
+        cnt = 32;
     }
   }
 }

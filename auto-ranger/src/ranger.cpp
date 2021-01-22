@@ -15,7 +15,7 @@
 U8X8_SH1106_128X64_NONAME_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);
 #else 
 #include <LiquidCrystal_I2C.h>
-LiquidCrystal_I2C lcd(0x27, 16, POSITIVE);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 #endif
 
@@ -330,7 +330,6 @@ void setup() {
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
 
-
 #ifdef DISPLAY_U8
   u8x8.begin();
   lcdBold(true); // You MUST make this call here to set a Font
@@ -343,7 +342,8 @@ void setup() {
   u8x8.setCursor(0,rowTemp);
   u8x8.print(__TIME__);
 #else
-  lcd.begin(DISPLAY_COLUMNS, DISPLAY_LINES );
+  //lcd.begin(DISPLAY_COLUMNS, DISPLAY_LINES );
+  lcd.init();
   lcd.display();
   lcd.backlight();
   lcd.print("Trumpy Bear");
@@ -371,7 +371,8 @@ void setup() {
 }
 
 void loop() {
-   mqtt_loop();
-   //doRanger(75);  //test
+  mqtt_loop();
+  //delay(200);
+  //doRanger(RGR_CONTINOUS, 75);  //test
    
 }
