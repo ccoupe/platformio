@@ -1,27 +1,28 @@
 /*
- * Mqtt-Ranger is an HR-504 ultrasonic sensor to meausre distance in cm.
- * and a HiLetgo 1.3" i2c OLED LCD. Two different 'nodes' on one device
- * in the Homie MQTT world. 
- * Measuring can 'take over' the display so they are not independent
+ * Mqtt-Ranger2 is an ultrasonic sensor to meausre distance in cm.
+ * and a Waveshare 2" 320x240 OLED LCD. 
+ * 
+ * 
+ * listening on topic homie/test_ranger/autoranger/mode/set
+ * listening on topic homie/test_ranger/autoranger/distance/set
+ * listening on topic homie/test_ranger/display/text/set
+ * listening on topic homie/test_ranger/display/mode/set
+ * 
+ * Font #6 is rouchly 16 chars x 4 lines in 320px width 240 height
 */
  
 #include <Arduino.h> 
 #include <Wire.h>
 #include "Device.h"
 #include "MQTT_Ranger.h"
-#ifdef DISPLAY_U8
-#include <U8x8lib.h>
-U8X8_SH1106_128X64_NONAME_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);
-#else 
-#include <LiquidCrystal_I2C.h> 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-#endif
 
 #define ACTIVE 1
 #define INACTIVE 0
 int state = INACTIVE;
 
+// Forward declares (and externs?)
+void myterm(int x, int y, String ln);
 int get_distance();
 boolean dist_display(int d, int target_d);
 //void doDisplay(boolean state, char *argstr);
@@ -173,155 +174,6 @@ int get_distance() {
   return (int)distance;
 }
 
-// forward decl
-int fill_line(int lnum, char **words, int wdlens[], int wdst, int maxw, int wid);
-
-
-/* called from Mqtt and internally for commicating status
- *  ASSUMES 2 line display. Will fill words to fit available lines
- *  one and two words are special cases: map to line 1, or line1 and line 2
- *  Always centered. New line in imput str is treated as space.
-*/
-
-//   u8x8.setFont(u8x8_font_profont29_2x3_r); // only 8 chars across
-//   u8x8.setFont(u8x8_font_inr21_2x4_f); // only 8 chars across
-void doDisplay(boolean state, String strarg) {
-  /* if str == Null then turn display on/off based on state 
-   * if str != Null then turn on and clear display
-   * we always clear the display. str arg may have \n inside
-   * to separate lines.
-   */
-   if (state == false) {
-      Serial.println("clear display");
-      //always clear 
-#ifdef DISPLAY_U8
-      u8x8.clear();
-#else
-      lcd.clear();
-      lcd.noDisplay();
-      lcd.noBacklight();
-#endif
-   } else {
-#ifdef DISPLAY_U8
-    u8x8.clear();
-    u8x8.setFont(u8x8_font_profont29_2x3_r); // 8 chars across. 2 Lines
-#else
-    lcd.display();
-    lcd.backlight();
-    lcd.clear();
-#endif
-    const char *argstr = strarg.c_str();
-    if (argstr == (char *)0) {
-      Serial.println("display on without string");
-      return;
-    }
-    char *str;
-    str = strdup(argstr);
-    int len = strlen(str);
-    char *words[8];
-    int j = 0;
-    words[0] = str;
-    for (int i = 0; i < len; i++) {
-      if (str[i] == '\n' || str[i] == ' ') {
-        j++;
-        words[j] = str+i+1;
-        str[i] = '\0';
-      }
-    }
-    if (j == 0) {
-      // Only one word, center it (DISPLAY_COLUMNS max)
-      int pos = 0;
-      if (len < (DISPLAY_COLUMNS - 1)) 
-        pos = (DISPLAY_COLUMNS - len) / 2;
-#ifdef DISPLAY_U8
-      u8x8.setCursor(pos*2,3);
-      u8x8.print(words[0]);
-#else
-      lcd.setCursor(pos, 0);
-      lcd.print(words[0]);
-#endif
-    } else {
-      int lens[8];
-      for (int i = 0; i <= j; i++) 
-        lens[i] = strlen(words[i]);
-      if (j == 1) {
-        // two words, two lines
-        for (int i = 0; i < 2; i++) {    
-          int pos = 0;
-          if (lens[i] < (DISPLAY_COLUMNS - 1)) 
-            pos = (DISPLAY_COLUMNS - lens[i]) / 2;
-#ifdef DISPLAY_U8
-          u8x8.setCursor(pos*2,i*4);
-          u8x8.print(words[i]);
-#else
-          lcd.setCursor(pos, i);
-          lcd.print(words[i]);
-#endif
-        }
-      } else {
-        // pack words into line
-        int nxt = fill_line(0, words, lens, 0, j+1, DISPLAY_COLUMNS);
-        fill_line(1, words, lens, nxt, j+1, DISPLAY_COLUMNS);
-      }
-    }
-  free(str);
-  }
-}  
-
-int fill_line(int lnum, char **words, int wdlens[], int wdst, int maxw, int wid) {
-  int len = 0;
-  char ln[wid + 1] = {0};
-  int pos = 0;
-  for (int i = wdst; i < maxw; i++) {
-    if ((len + wdlens[i]) <= wid) {
-      strcat(ln, words[i]);
-      strcat(ln, " ");
-      len += (wdlens[i] + 1);
-    } else {
-      // would overflow, center, print and return
-      if (len <= wid) 
-         pos = (wid - len) / 2;
-#ifdef DISPLAY_U8
-       u8x8.setCursor(pos*2, lnum*4);
-       u8x8.print(ln);
-#else
-       lcd.setCursor(pos, lnum);
-       lcd.print(ln);
-#endif
-      return i;
-    }
-  }
-  // if we get here, there is a partial line to print.
-  if (len <= wid) 
-     pos = (wid - len) / 2;
-#ifdef DISPLAY_U8
-  u8x8.setCursor(pos*2,lnum*4);
-  u8x8.print(ln);
-#else
-  lcd.setCursor(pos, lnum);
-  lcd.print(ln);
-#endif
-  return maxw;
-}
-
-
-#ifdef DISPLAY_U8
-const uint8_t colLow = 4;
-const uint8_t colHigh = 13;
-const uint8_t rowCups = 0;
-const uint8_t rowState = 2; // Double spacing the Rows
-const uint8_t rowTemp = 4; // Double spacing the Rows
-const uint8_t rowTime = 6; // Double spacing the Rows
-
-void lcdBold(bool aVal) {
-  if (aVal) {
-    u8x8.setFont(u8x8_font_victoriabold8_r); // BOLD
-  } else {
-    u8x8.setFont(u8x8_font_victoriamedium8_r); // NORMAL
-  }
-}
-#endif
-
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting");
@@ -329,24 +181,8 @@ void setup() {
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
 
-#ifdef DISPLAY_U8
-  u8x8.begin();
-  lcdBold(true); // You MUST make this call here to set a Font
-  // u8x8.setPowerSave(0); // Too lazy to find out if I need this
-  u8x8.clear();
-  u8x8.setCursor(0,rowCups);
-  u8x8.print(F("Trumpy Bear"));
-  u8x8.setCursor(0,rowState);
-  u8x8.print(__DATE__);
-  u8x8.setCursor(0,rowTemp);
-  u8x8.print(__TIME__);
-#else
-  //lcd.begin(DISPLAY_COLUMNS, DISPLAY_LINES );
-  lcd.init();
-  lcd.display();
-  lcd.backlight();
-  lcd.print("Trumpy Bear");
-#endif    
+  display_init();
+
   mqtt_setup(WIFI_ID, WIFI_PASSWORD, MQTT_SERVER, MQTT_PORT, MQTT_DEVICE,
       HDEVICE, HNAME, doRanger, doDisplay);
 
@@ -366,7 +202,6 @@ void setup() {
 
   // Start an alarm
   timerAlarmEnable(timer);
-
 }
 
 void loop() {
@@ -375,3 +210,4 @@ void loop() {
   //doRanger(RGR_CONTINOUS, 75);  //test
    
 }
+

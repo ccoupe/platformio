@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../../../lvgl/lv_platformio-master"
+		},
+		{
+			"name": "auto-ranger",
+			"path": "."
+		}
+	],
+	"settings": {}
+}

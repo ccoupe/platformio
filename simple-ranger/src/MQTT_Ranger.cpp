@@ -18,24 +18,22 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length);
 void mqtt_publish(char *topic, char *payload);
 void mqtt_homie_pub(String topic, String payload, bool retain); 
 
-const char *wifi_id;
-const char *wifi_password;
-const char *mqtt_server;
+String wifi_id;
+String wifi_password;
+String mqtt_server;
 int  mqtt_port;
-const char *mqtt_device;
+String mqtt_device;
 String hdevice;
 String hname;
-String hlname;
-String hpub;
-String hsub;
-String hsubq;
-String hpubst;             // ..ranger/$status <- publish to 
+
 String hpubDistance;       // ..ranger/distance <- publish to
-String hsubDistance;       // ..ranger/control/set -> subcribe to
+String hsubDistance;       // ..ranger/distance/set -> subcribe to
+String hsubCtrlSet;         // homie/<hdevice>/control/set subscribe to
 //char *hsubMode;           // ..ranger/mode/set -> subscribe to
 //char *hsubDspCmd;         // ../display/cmd/set  -> subscribe to
 //char *hsubDspTxt;         // ../display/text/set -> subscribe to
-void (*rgrCBack)(String); // does autorange to near newval
+void (*rgrCBack)(String);   // does autorange to newval
+void (*ctlCBack)(String);   // json {"cmd":, "update", "url": <string>}
 //void (*dspCBack)(boolean st, char *str);       
 
 //int rgr_mode = RGR_ONCE;
@@ -53,7 +51,7 @@ static void setup_wifi() {
   Serial.print("Connecting to ");
   Serial.println(wifi_id);
 
-  WiFi.begin(wifi_id, wifi_password);
+  WiFi.begin(wifi_id.c_str(), wifi_password.c_str());
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -83,18 +81,15 @@ static void setup_wifi() {
   ipAddr = strdup(ipaddr.c_str());
 }
 
-void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport, 
-    const char* mqdev, const char *hdev, const char *hnm, void (*ccb)(String) ) {
+void mqtt_setup(void (*ccb)(String), void (*ctb)(String) ) {
+  String hlname;
+  String hpub;
+  String hsub;
+  String hsubq;
+  String hpubst; 
 
   rgrCBack = ccb; 
-  wifi_id = wid;
-  wifi_password = wpw;
-  mqtt_server = mqsrv;
-  mqtt_port = mqport;
-  mqtt_device = mqdev;
-  hdevice = String(hdev);
-  hname = String(hnm);
-
+  ctlCBack = ctb;
   // Create "homie/"HDEVICE"/ranger"
   hpub = "homie/" + hdevice + "/ranger";
   
@@ -107,16 +102,16 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   // Create "homie/"HDEVICE"/ranger/distance/set" topic for subscribe 
   hsubDistance = "homie/" + hdevice + "/ranger/distance/set";
  
-
+  hsubCtrlSet  = "homie/" + hdevice + "/control/cmd/set";
 
   // Sanitize hname -> hlname
-  hlname = hname;
+  hlname = String(hname);
   hlname.toLowerCase();
   hlname.replace(" ", "_");
   hlname.replace("\t", "_");
    
   setup_wifi();
-  client.setServer(mqtt_server, mqtt_port);
+  client.setServer(mqtt_server.c_str(), mqtt_port);
   client.setCallback(mqtt_callback);
   mqtt_reconnect();
   
@@ -144,9 +139,9 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   
   //"homie/"HDEVICE"/$nodes", -> 
   tmp = "homie/" + hdevice + "/$nodes";
-  mqtt_homie_pub(tmp, "ranger", true);
+  mqtt_homie_pub(tmp, "ranger, control", true);
 
-  // begin pr - display
+
   
   // "homie/"HDEVICE"/ranger/$name" -> hname (Un sanitized)
   tmp = "homie/" + hdevice + "/ranger/$name";
@@ -177,7 +172,37 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   // "homie/"HDEVICE"/ranger/cmd/$settable" -> "true"
   tmp = "homie/" + hdevice + "/ranger/distance/$settable";
   mqtt_homie_pub(tmp, "true", true);
+
+  // ---------- node 'control' -----------------
+  // "homie/"HDEVICE"/control/$name" -> hname (Un sanitized)
+  tmp = "homie/" + hdevice + "/control/$name";
+  mqtt_homie_pub(tmp, hname, true);
   
+  // "homie/"HDEVICE"/control/$type" ->  "controller"
+  tmp = "homie/" + hdevice +  "/control/$type";
+  mqtt_homie_pub(tmp, "controller", true);
+
+  // "homie/"HDEVICE"/control/$properties" -> "cmd"
+  tmp = "homie/" + hdevice + "/control/$properties";
+  mqtt_homie_pub(tmp, "cmd", true);
+
+  // Property 'cmd' of 'control' node
+  // "homie/"HDEVICE"/ranger/distance/$name ->, Unsanitized hname
+  tmp = "homie/" + hdevice + "/control/cmd/$name";
+  mqtt_homie_pub(tmp, hname, true); 
+
+  // "homie"HDEVICE"/control/cmd/$datatype" -> "string"
+  tmp = "homie/" + hdevice + "/control/cmd/$datatype";
+  mqtt_homie_pub(tmp, "string", true);
+
+  // "homie/"HDEVICE"/control/cmd/$settable" -> "true"
+  tmp = "homie/" + hdevice + "/control/cmd/$settable";
+  mqtt_homie_pub(tmp, "true", true);
+
+  // "homie/"HDEVICE"/control/cmd/$retained" -> "true"
+  tmp = "homie/" + hdevice + "/control/cmd/$retained";
+  mqtt_homie_pub(tmp, "true", true);
+
 }
 
 void mqtt_callback(char* topic, byte* payl, unsigned int length) {
@@ -195,6 +220,8 @@ void mqtt_callback(char* topic, byte* payl, unsigned int length) {
 
   if (! strcmp(hsubDistance.c_str(), topic)) { 
     rgrCBack(String(payload));
+  } else if (! strcmp(hsubCtrlSet.c_str(), topic)) {
+    ctlCBack(String(payload));
   }
 }
 
@@ -205,12 +232,15 @@ void mqtt_reconnect() {
   while (!client.connected()) {
     Serial.print("Attempting MQTT connection...");
     // Attempt to connect
-    if (client.connect(mqtt_device)) {
+    if (client.connect(mqtt_device.c_str())) {
       Serial.println("connected");
       // Subscribe to <dev/node/property>/set
       client.subscribe(hsubDistance.c_str());
       Serial.print("listening on topic ");
       Serial.println(hsubDistance);
+      client.subscribe(hsubCtrlSet.c_str());
+      Serial.print("listening on topic ");
+      Serial.println(hsubCtrlSet);
     } else {
       Serial.print("failed, rc=");
       Serial.println(client.state());
