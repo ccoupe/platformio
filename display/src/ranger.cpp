@@ -22,11 +22,8 @@
 int state = INACTIVE;
 
 // Forward declares (and externs?)
-void myterm(int x, int y, String ln);
 int get_distance();
 boolean dist_display(int d, int target_d);
-//void doDisplay(boolean state, char *argstr);
-void doDisplay(boolean state, String argstr);
 
 long lastMsg = 0;
 char msg[50];

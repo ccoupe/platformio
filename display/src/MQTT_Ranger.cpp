@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-#include <Arduino_JSON.h>
+#include <ArduinoJson.h>
 #include "MQTT_Ranger.h"
 
 #define USE_ACTIVE_HOLD
@@ -19,6 +19,8 @@ void mqtt_send_config();
 void mqtt_callback(char* topic, byte* payload, unsigned int length);
 void mqtt_publish(char *topic, char *payload);
 void mqtt_homie_pub(String topic, String payload, bool retain); 
+void controlCb(String topic, char *payload);
+extern void updateFrom(String host, int port, String path); 
 
 String wifi_id;
 String wifi_password;
@@ -37,6 +39,7 @@ String hsubDistance;       // ..autoranger/distance/set -> subcribe to
 String hsubMode;           // ..autoranger/mode/set -> subscribe to
 String hsubDspCmd;         // ../display/cmd/set  -> subscribe to
 String hsubDspTxt;         // ../display/text/set -> subscribe to
+String hsubCmdSet;          // ../control/cmd/set -> subscribe to
 void (*rgrCBack)(int mode, int newval); // does autorange to near newval
 void (*dspCBack)(boolean st, String str);       
 
@@ -124,6 +127,10 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   // create the subscribe topics for "homie/"HDEVICE"/display/text/set
   hsubDspTxt = "homie/" + hdevice + "/display/text/set";
 
+  // creat the subscribe topic for "home/"HDEVICE"/control/cmd/set
+  hsubCmdSet = "homie/" + hdevice + "/control/cmd/set";
+
+
   // Sanitize hname -> hlname
   hlname = String(hname);
   hlname.toLowerCase();
@@ -161,8 +168,45 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   
   //"homie/"HDEVICE"/$nodes", -> 
   tmp = "homie/" + hdevice + "/$nodes";
-  mqtt_homie_pub(tmp, "autoranger,display", true);
+  mqtt_homie_pub(tmp, "autoranger,display, control", true);
 
+  // -------------- begin node control ---------------------
+
+  // "homie/"HDEVICE"/control/$name" -> hname (Un sanitized)
+  tmp = "homie/" + hdevice + "/control/$name";
+  mqtt_homie_pub(tmp, hname, true);
+  
+  // "homie/"HDEVICE"/control/$type" ->  "sensor"
+  tmp = "homie/" + hdevice + "/control/$type";
+  mqtt_homie_pub(tmp, "control", true);
+  
+  // "homie/"HDEVICE"/control/$properties" -> "cmd, text"
+   tmp = "homie/" + hdevice + "/control/$properties";
+  mqtt_homie_pub(tmp, "cmd", true);
+
+  // Property 'cmd' of 'control' node
+  // "homie/"HDEVICE"/control/cmd/$name ->, Unsanitized hname
+   tmp = "homie/" + hdevice + "/control/cmd/$name";
+  mqtt_homie_pub(tmp, hname, true); 
+
+  // "homeie"HDEVICE"/control/cmd/$datatype" -> "string"
+  tmp = "homie/" + hdevice + "/control/cmd/$datatype";
+  mqtt_homie_pub(tmp, "string", true);
+
+  // "homie/"HDEVICE"/control/cmd/$settable" -> "false"
+  tmp = "homie/" + hdevice + "/control/cmd/$settable";
+   mqtt_homie_pub(tmp, "false", true);
+
+  // "homie/"HDEVICE"/control/cmd/$name" -> Unsantized hname
+  tmp = "homie/" + hdevice + "/control/cmd/$name";
+  mqtt_homie_pub(tmp, hname, true);
+
+  // "homie/"HDEVICE"/control/cmd/$retained" -> "true"
+  tmp = "homie/" + hdevice + "/control/cmd/$retained";
+  mqtt_homie_pub(tmp, "false", true);
+  // ----------- end node control ------------------
+
+  // begin node autoranger
   // end node - autoranger
 
   // begin node - display
@@ -265,6 +309,8 @@ void mqtt_callback(char* topic, byte* payl, unsigned int length) {
     }
   } else if (! strcmp(hsubDspTxt.c_str(), topic)) {
     dspCBack(true, payload);
+  } else if (! strcmp(hsubCmdSet.c_str(),topic )) {
+    controlCb(topic, payload);    // in this file, for now.
   }
 }
 
@@ -297,6 +343,11 @@ void mqtt_reconnect() {
       client.subscribe(hsubDspCmd.c_str());
       Serial.print("listening on topic ");
       Serial.println(hsubDspCmd);
+
+      // subscribe to <device>/control/cmd/set
+      client.subscribe(hsubCmdSet.c_str());
+      Serial.print("listening on topic ");
+      Serial.println(hsubCmdSet);
 
     } else {
       Serial.print("failed, rc=");
@@ -348,4 +399,47 @@ void mqtt_loop() {
   }
   client.loop();
 
+}
+
+// parse json (cmds)
+void controlCb(String topic, char *payload) {
+  const size_t capacity = JSON_OBJECT_SIZE(2) + 180;
+  DynamicJsonDocument doc(capacity);
+
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) {
+    Serial.print(F("deserializeJson() failed with code "));
+    Serial.println(err.f_str());
+  }
+  const char* cmd = doc["cmd"]; // "update"
+  if (! strcmp(cmd, "update")) {
+    String url = doc["url"];
+    String host;
+    int port = 0;
+    String path;
+    if (url.length() ) {
+      // break it down.
+      int sl = url.indexOf("//");
+      if (sl > 4) {
+        url = url.substring(sl+2);
+        int portpos = url.indexOf(":");
+        int trslh = url.indexOf("/");
+        if (portpos > 0) {
+          port = url.substring(portpos+1,trslh).toInt();
+        } else {
+          port = 2345; //Better default?
+          portpos = trslh;
+        }
+        host = url.substring(0, portpos);
+        path = url.substring(trslh);
+      }
+      if (host.length() > 2 && port > 1000  && path.length() > 6) {
+        Serial.print("Start update from "+String(host)+":"+String(port));
+        Serial.println(" path: "+String(path));
+        updateFrom(host, port, path);  
+        // no return if things work, nothing to do if they don't
+      }
+    }
+  }
+   // 
 }

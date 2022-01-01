@@ -17,7 +17,7 @@
 #define trigPin 4
 
 // Define display 
-#define DISPLAY_U8
+//#define DISPLAY_U8
 //#define LCD160X
 //#define TFT_SPI 
 
