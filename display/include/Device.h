@@ -35,6 +35,63 @@
 #define DISPLAY_COLUMNS 12
 #define DISPLAY_LINES 4
 #endif
+#ifdef RANGER
+#ifndef RANGE_LOW
+#define RANGE_LOW 10
+#endif
+#ifndef RANGE_HIGH
+#define RANGE_HIGH 400
+#endif
+#ifndef EVERY
+#define EVERY 60
+#endif
+#ifndef KEEP_ALIVE
+#define KEEP_ALIVE 14400
+#endif
+#ifndef SAMPLE
+#define SAMPLE 1
+#endif
+#ifndef SLOPH
+#define SLOPH 1
+#endif
+#ifndef SLOPL
+#define SLOPL 1
+#endif
+#ifndef AVERAGE
+#define AVERAGE 1
+#endif 
+#ifndef REPORT_ALL
+#define REPORT_ALL false
+#endif 
+#ifndef BOUNDS_LOW
+#define BOUNDS_LOW 3
+#endif
+#ifndef BOUNDS_HIGH
+#define BOUNDS_HIGH 580
+#endif 
+#ifdef DISPLAYG              // DISPLAYG AND RANGER defined
+#ifndef GUIDE_LOW
+#define GUIDE_LOW "Move Forward"
+#endif
+#ifndef GUIDE_HIGH
+#define GUIDE_HIGH "Move Backward"
+#endif
+#ifndef GUIDE_TARGET
+#define GUIDE_TARGET "Stop There"
+#endif
+#endif // Display within ranger (autoranger)
+#endif // Ranger
+#ifdef DISPLAYG
+#ifndef SCREEN_COLOR
+#define SCREEN_COLOR "BLACK"
+#endif
+#ifndef BLANK_AFTER  
+#define BLANK_AFTER 300 
+#endif
+#ifndef SCROLL
+#define SCROLL false
+#endif
+#endif
 /* 
  * Ranger modes
  * ONCE - signal once when object stop withing given distance (+/-) 
@@ -42,9 +99,8 @@
  * FREE - signal continously - makes for a very busy MQTT
  */
 #define RGR_ONCE  0    
-#define RGR_CONTINOUS 1
+#define RGR_GUIDE 1
 #define RGR_FREE  2
-#define RGR_SNAP 3
 
 // declare extern vars and functions. And Classes.
 extern void display_init();

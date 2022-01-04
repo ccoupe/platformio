@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include "Device.h"
 #include "MQTT_Ranger.h"
 
 #define USE_ACTIVE_HOLD
@@ -33,13 +34,17 @@ String hlname;
 String hpub;
 String hsub;
 String hsubq;
-String hpubst;             // ..autoranger/$status <- publish to 
-String hpubDistance;       // ..autoranger/distance <- publish to
-String hsubDistance;       // ..autoranger/distance/set -> subcribe to
-String hsubMode;           // ..autoranger/mode/set -> subscribe to
+//String hpubst;             // ..ranger/$status <- publish to 
+#ifdef RANGER
+String hpubDistance;       // ..ranger/distance <- publish to
+String hsubDistance;       // ..ranger/distance/set -> subcribe to
+String hsubRgrSet;           // ..ranger/cmd/set -> subscribe to
+#endif
+#ifdef DISPLAYG
 String hsubDspCmd;         // ../display/cmd/set  -> subscribe to
 String hsubDspTxt;         // ../display/text/set -> subscribe to
-String hsubCmdSet;          // ../control/cmd/set -> subscribe to
+//String hsubCmdSet;          // ../control/cmd/set -> subscribe to
+#endif
 void (*rgrCBack)(int mode, int newval); // does autorange to near newval
 void (*dspCBack)(boolean st, String str);       
 
@@ -102,34 +107,35 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   hdevice = hdev;
   hname = hnm;
   String tmp;
-
-  // Create "homie/"HDEVICE"/autoranger"
-  hpub = "homie/" + hdevice + "/autoranger";
+#ifdef RANGER
+  // Create "homie/"HDEVICE"/ranger"
+  hpub = "homie/" + hdevice + "/ranger";
 
   // Create "homie/"HDEVICE"/autoranger/status" 
-  hpubst =  "homie/" + hdevice + "/autoranger/status";
+  //hpubst =  "homie/" + hdevice + "/ranger/status";
 
-  // Create "homie/"HDEVICE"/autoranger/mode
-  hsubq = "homie/"+ hdevice + "/autoranger/mode";
+  // Create "homie/"HDEVICE"/ranger/cmd
+  hsubq = "homie/"+ hdevice + "/ranger/cmd";
 
-  // Create "homie/"HDEVICE"/autoranger/mode/set
-  hsubMode = "homie/" + hdevice + "/autoranger/mode/set";
+  // Create "homie/"HDEVICE"/ranger/cmd/set
+  hsubRgrSet = "homie/" + hdevice + "/ranger/cmd/set";
  
-  // Create "homie/"HDEVICE"/autoranger/distance for publishing
-  hpubDistance = "homie/" + hdevice + "/autoranger/distance";
+  // Create "homie/"HDEVICE"/ranger/distance for publishing
+  hpubDistance = "homie/" + hdevice + "/ranger/distance";
  
-  // Create "homie/"HDEVICE"/autoranger/distance/set topic for subscribe 
-  hsubDistance = "homie/" + hdevice + "/autoranger/distance/set";
-   
+  // Create "homie/"HDEVICE"/ranger/distance/set topic for subscribe 
+  hsubDistance = "homie/" + hdevice + "/ranger/distance/set";
+#endif  
+#ifdef DISPLAYG
   // create the subscribe topics for "homie/"HDEVICE"/display/cmd/set
-  hsubDspCmd = "homie/" + hdevice + "/display/mode/set";
+  //hsubDspCmd = "homie/" + hdevice + "/display/mode/set";
 
   // create the subscribe topics for "homie/"HDEVICE"/display/text/set
   hsubDspTxt = "homie/" + hdevice + "/display/text/set";
 
   // creat the subscribe topic for "home/"HDEVICE"/control/cmd/set
-  hsubCmdSet = "homie/" + hdevice + "/control/cmd/set";
-
+  //hsubCmdSet = "homie/" + hdevice + "/control/cmd/set";
+#endif
 
   // Sanitize hname -> hlname
   hlname = String(hname);
@@ -168,10 +174,16 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   
   //"homie/"HDEVICE"/$nodes", -> 
   tmp = "homie/" + hdevice + "/$nodes";
-  mqtt_homie_pub(tmp, "autoranger,display, control", true);
+#if defined(RANGER) && defined(DISPLAYG)
+  mqtt_homie_pub(tmp, "ranger,display", true);
+#elif defined(RANGER)
+  mqtt_homie_pub(tmp, "ranger", true);
+#elif defined(DISPLAYG)
+  mqtt_homie_pub(tmp, "display", true);
+#endif
 
   // -------------- begin node control ---------------------
-
+#ifdef RANGER
   // "homie/"HDEVICE"/control/$name" -> hname (Un sanitized)
   tmp = "homie/" + hdevice + "/control/$name";
   mqtt_homie_pub(tmp, hname, true);
@@ -208,7 +220,8 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
 
   // begin node autoranger
   // end node - autoranger
-
+#endif
+#ifdef DISPLAYG
   // begin node - display
   // "homie/"HDEVICE"/display/$name" -> hname (Un sanitized)
   tmp = "homie/" + hdevice + "/display/$name";
@@ -259,7 +272,7 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   // "homie/"HDEVICE"/display/text/$retained" -> "true"
   tmp = "homie/" + hdevice + "/display/text/$retained";
   mqtt_homie_pub(tmp, "false", true);
-  
+#endif
 }
 
 void mqtt_callback(char* topic, byte* payl, unsigned int length) {
@@ -275,24 +288,9 @@ void mqtt_callback(char* topic, byte* payl, unsigned int length) {
   Serial.print(" payload: ");
   Serial.println(payload);
 
-  if (! strcmp(hsubMode.c_str(), topic)) {
-    if (! strcmp(payload, "once")) {
-      rgr_mode = RGR_ONCE;
-    } else if (! strcmp(payload, "continous")) {
-      rgr_mode = RGR_CONTINOUS;
-    } else if (! strcmp(payload, "free")) {
-      rgr_mode = RGR_FREE;
-      rgrCBack(rgr_mode, 3600);
-    } else if (! strcmp(payload, "snap")) {
-      rgr_mode = RGR_SNAP;
-      rgrCBack(rgr_mode, 3600);
-    } else if (! strcmp(payload, "off")) {
-      rgr_mode = RGR_ONCE;
-      rgrCBack(rgr_mode, 0);
-    } else {
-      Serial.println("mode: bad payload");
-      rgr_mode = RGR_ONCE;
-    }
+
+  if (! strcmp(hsubRgrSet.c_str(), topic)) {
+     controlCb(topic, payload);    // in this file, for now.
   } else if (! strcmp(hsubDistance.c_str(), topic)) { 
     int d = atoi(payload);
     if (d < 0)
@@ -301,16 +299,9 @@ void mqtt_callback(char* topic, byte* payl, unsigned int length) {
       d = 3600;
     rgrCBack(rgr_mode, d);
   } else if (! strcmp(hsubDspCmd.c_str(), topic)) {
-    if (!strcmp(payload, "on") || !strcmp(payload, "true")) {
-      dspCBack(true, (char*)0);
-    } else if ((! strcmp(payload, "off")) || (!strcmp(payload, "false" ))) {
-      Serial.println("display set off");
-      dspCBack(false, (char*)0);
-    }
+      controlCb(topic, payload);    // in this file, for now.
   } else if (! strcmp(hsubDspTxt.c_str(), topic)) {
     dspCBack(true, payload);
-  } else if (! strcmp(hsubCmdSet.c_str(),topic )) {
-    controlCb(topic, payload);    // in this file, for now.
   }
 }
 
@@ -323,32 +314,33 @@ void mqtt_reconnect() {
     // Attempt to connect
     if (client.connect(mqtt_device.c_str())) {
       Serial.println("connected");
-
+#ifdef RANGER
       // Subscribe to <dev/node/property>/set
-      client.subscribe(hsubMode.c_str());
+      client.subscribe(hsubRgrSet.c_str());
       Serial.print("listening on topic ");
-      Serial.println(hsubMode);
+      Serial.println(hsubRgrSet);
       
       // Subscribe to <dev/node/property>/set
       client.subscribe(hsubDistance.c_str());
       Serial.print("listening on topic ");
       Serial.println(hsubDistance);
-
-      // Subscribe to <dev/node/property>/set
+#endif
+#ifdef DISPLAYG
+      // Subscribe to <dev>/display/text/set
       client.subscribe(hsubDspTxt.c_str());
       Serial.print("listening on topic ");
       Serial.println(hsubDspTxt);
      
-      // Subscribe to <dev/node/property>/set
+      // Subscribe to <dev>/display/cmd>/set
       client.subscribe(hsubDspCmd.c_str());
       Serial.print("listening on topic ");
       Serial.println(hsubDspCmd);
 
-      // subscribe to <device>/control/cmd/set
-      client.subscribe(hsubCmdSet.c_str());
-      Serial.print("listening on topic ");
-      Serial.println(hsubCmdSet);
-
+      // subscribe to <device>/display/text/set
+      //client.subscribe(hsubCmdSet.c_str());
+      //Serial.print("listening on topic ");
+      //Serial.println(hsubCmdSet);
+#endif
     } else {
       Serial.print("failed, rc=");
       Serial.println(client.state());
@@ -401,19 +393,9 @@ void mqtt_loop() {
 
 }
 
-// parse json (cmds)
-void controlCb(String topic, char *payload) {
-  const size_t capacity = JSON_OBJECT_SIZE(2) + 180;
-  DynamicJsonDocument doc(capacity);
-
-  DeserializationError err = deserializeJson(doc, payload);
-  if (err) {
-    Serial.print(F("deserializeJson() failed with code "));
-    Serial.println(err.f_str());
-  }
-  const char* cmd = doc["cmd"]; // "update"
-  if (! strcmp(cmd, "update")) {
-    String url = doc["url"];
+void tryUpdate(String url) {
+    Serial.println("Update from "+url);
+    return;
     String host;
     int port = 0;
     String path;
@@ -440,6 +422,136 @@ void controlCb(String topic, char *payload) {
         // no return if things work, nothing to do if they don't
       }
     }
+}
+
+// should be pointed to the key/value pairs
+void processSettingsJson(DynamicJsonDocument doc) {
+#ifdef RANGER
+  if (doc["mode"]) {
+    const char *mode = doc["mode"];
+    if (! strcmp(mode, "guide")) {
+
+    }
+    else if (! strcmp(mode, "once")) {
+
+    }
+    else if (! strcmp(mode, "free")) {
+
+    }
   }
-   // 
+  int every = EVERY;             // report every <n> seconds 
+  if (doc["every"]) {
+    every = doc["every"];
+  }
+
+  int keep_alive = KEEP_ALIVE ;    // default 4 hrs in (4 * 50 * 60)
+  if (doc["keep-alive"]) {
+    keep_alive = doc["keep-alive"];
+  }           
+
+  int sample = SAMPLE;             // read sensor every n seconds
+  if (doc["sample"]) {
+    sample = doc["sample"];
+  }
+
+  int range_low = RANGE_LOW;
+  if (doc["range-low"])  range_low = doc["range-low"];
+
+  int range_high = RANGE_HIGH;
+  if (doc["range-high"])  range_high = doc["range-high"];
+  
+  int slopH = SLOPH;
+  if (doc["slopH"]) slopH = doc["slopH"];
+
+  int slopL = SLOPL;
+  if (doc["slopL"]) slopH = doc["slopL"];
+
+  int average = AVERAGE;
+  if (doc["average"]) average = doc["average"];
+
+  boolean report_all = REPORT_ALL;
+  if (doc["report-all"]) report_all = doc["report_all"];
+
+  int bounds_low = BOUNDS_LOW;
+  if (doc["bounds_low"]) bounds_low = doc["bounds-low"];
+
+  int bounds_high = BOUNDS_HIGH;
+  if (doc["bounds_high"]) bounds_high = doc["bounds-high"];
+
+#ifdef DISPLAYG
+  const char* guide_low = GUIDE_LOW;
+  if (doc["guide-low"]) guide_low = doc["guide-low"];
+
+  const char* guide_high = GUIDE_HIGH;
+  if (doc["guide_high"]) guide_high = doc["guide_high"];
+
+  const char* guide_target = GUIDE_TARGET;
+  if (doc["guide-target"]) guide_target = doc["guide-target"];
+
+#endif // DISPLAY and 
+#endif // RANGER
+  // Now we handle DISPLAY settings
+#ifdef DISPLAYG
+  const char *screen_color = SCREEN_COLOR;
+  if (doc["color"]) screen_color = doc["color"];
+
+  int blank_after = BLANK_AFTER;
+  if (doc["blank-after"]) blank_after = doc["blank-after"];
+
+  boolean do_scroll = SCROLL;
+  if (doc["scroll"]) do_scroll = doc["scroll"];
+#endif
+}
+
+void processTextJson(DynamicJsonDocument doc) {
+   
+}
+
+// parse json (cmds)
+void controlCb(String topic, char *payload) {
+#ifdef DISPLAYG
+  if (payload[0]  != '{')
+    // not json - assume plain text to display
+    doDisplay(true, payload);
+#endif
+  const size_t capacity = JSON_OBJECT_SIZE(2) + 180;
+  DynamicJsonDocument doc(capacity);
+
+  DeserializationError err = deserializeJson(doc, payload);
+  if (err) {
+    Serial.print(F("deserializeJson() failed with code "));
+    Serial.println(err.f_str());
+  }
+  const char *cmd = doc["cmd"];
+  if (cmd) { 
+    if (! strcmp(cmd, "update")) { // "update"
+      tryUpdate(doc["url"]);
+    } else if (! strcmp(cmd, "off")) {
+#ifdef DISPLAYG
+      displayOff();
+#endif
+#ifdef RANGER
+      rangerOff();
+#endif
+    } else if (! strcmp(cmd, "on")) {
+#ifdef DISPLAYG
+      displayOn();
+#endif
+#ifdef RANGER
+      rangerOn();
+#endif
+    }
+    return;
+  }
+  const char *text = doc["text"];
+  if (text) {
+    processTextJson(doc);
+    return;
+  }
+  const char *settings = doc["settings"];
+  if (settings) {
+    processSettingsJson(doc["settings"]);
+    return;
+  }
+
 }
