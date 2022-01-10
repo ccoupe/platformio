@@ -18,10 +18,6 @@ ranger:  homie/<device>/ranger/cmd/set
 display: homie/<device>/display/cmd/set   //for json formated txt and cmds
          homied/<device>/display/text/set // just text
 
-auto-ranger: ??
-
-Decide syntax elements which are ranger and which are display?
-
 
 ### Hubitat Elevation drivers (outputs to MQTT/Display
 Two - one for simple/formatted text display.
@@ -64,15 +60,14 @@ homie/<device>ranger/distance   <integer-centimeters>
 
 <settings> set of key value pairs:
   "mode": "guide"| "once" | "free"
-  "every": <n>          // wake up sensor every n seconds, report
-  "keep-alive" <n>      // wake up sensor every n seconds don't report
-  "sample> <n>          // how often to sample. free running doesn't change this
-  "range-low": <n>      // send above/below these limits.
+  "keep-alive" <n>      // wake up sensor every n seconds and report
+  "sample> <n>          // how often to sample in seconds.
+  "every": <n>          // wake up sensor every n samples, report
+  "average": <n>         // number of samples to average. 0 or 1 means no averaging
+  "range-low": <n>      // In Guide mode, notify in/out of these limits
   "range-high": <n>     // 
   "slopH": <n>
   "slopL": <n>
-  "report-all": <bool>  // report if value outside range h/l but
-  "average": n          // 1 means no averaging
   "bounds-low": <n>     //  within out of bounds range.
   "bounds-high": <n>
   "guide-low": <gd-str>   
@@ -80,7 +75,7 @@ homie/<device>ranger/distance   <integer-centimeters>
   "guide-target: <gd-str>
   }
 
-
+!!! TODO: report_average  !!!! ------------------------------- !!!!
 
 ### display json
 

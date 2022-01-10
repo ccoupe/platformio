@@ -48,7 +48,7 @@
 Preferences eeprom;
 #define DelayToOff 2
 unsigned int delaySeconds = DelayToOff;   // this variable can be set dynamically
-unsigned countDown = DelayToOff;
+unsigned every = DelayToOff;
 unsigned fourHours = 60*60*4;
 int last_d;
 
@@ -324,13 +324,13 @@ void loop() {
       int d = get_distance();
       check_measurement(d, true);
     } else {
-      countDown--;
-      if (countDown <= 0) {
+      every--;
+      if (every <= 0) {
         // time to take a measurement
         int d = get_distance();
         check_measurement(d, false);
-        // reset countdown timer
-        countDown = delaySeconds;
+        // reset every timer
+        every = delaySeconds;
       }
     }
   }

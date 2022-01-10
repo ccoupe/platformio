@@ -33,22 +33,22 @@ String hname;
 String hlname;
 String hpub;
 String hsub;
-String hsubq;
-//String hpubst;             // ..ranger/$status <- publish to 
+//String hpubst;           // ..ranger/$status <- publish to 
 #ifdef RANGER
-String hpubDistance;       // ..ranger/distance <- publish to
-String hsubDistance;       // ..ranger/distance/set -> subcribe to
-String hsubRgrSet;           // ..ranger/cmd/set -> subscribe to
+String hpubDistance;        // ..ranger/distance <- publish to
+String hpubRgrCmd;          // ..ranger/control/cmd <- publish to 
+String hsubDistance;         // ..ranger/distance/set -> subcribe to
+String hsubRgrSet;          // ..ranger/control/cmd/set -> subscribe to
 #endif
 #ifdef DISPLAYG
-String hsubDspCmd;         // ../display/cmd/set  -> subscribe to
-String hsubDspTxt;         // ../display/text/set -> subscribe to
-//String hsubCmdSet;          // ../control/cmd/set -> subscribe to
+String hsubDspCmd;           // ../display/cmd/set  -> subscribe to
+String hsubDspTxt;          // ../display/text/set -> subscribe to
+//String hsubCmdSet;       // ../control/cmd/set -> subscribe to
 #endif
 void (*rgrCBack)(int mode, int newval); // does autorange to near newval
 void (*dspCBack)(boolean st, String str);       
 
-int rgr_mode = RGR_ONCE;
+//int rgr_mode = RGR_ONCE;
 
 byte macaddr[6];
 char *macAddr;
@@ -114,12 +114,11 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   // Create "homie/"HDEVICE"/autoranger/status" 
   //hpubst =  "homie/" + hdevice + "/ranger/status";
 
-  // Create "homie/"HDEVICE"/ranger/cmd
-  hsubq = "homie/"+ hdevice + "/ranger/cmd";
+  // Create "homie/"HDEVICE"/ranger/control/cmd
+  hpubRgrCmd = "homie/" + hdevice + "/ranger/control/cmd";
+  // Create "homie/"HDEVICE"/ranger/control/cmd/set
+  hsubRgrSet = "homie/" + hdevice + "/ranger/control/cmd/set";
 
-  // Create "homie/"HDEVICE"/ranger/cmd/set
-  hsubRgrSet = "homie/" + hdevice + "/ranger/cmd/set";
- 
   // Create "homie/"HDEVICE"/ranger/distance for publishing
   hpubDistance = "homie/" + hdevice + "/ranger/distance";
  
@@ -128,14 +127,12 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
 #endif  
 #ifdef DISPLAYG
   // create the subscribe topics for "homie/"HDEVICE"/display/cmd/set
-  //hsubDspCmd = "homie/" + hdevice + "/display/mode/set";
+  hsubDspCmd = "homie/" + hdevice + "/display/cmd/set";
 
   // create the subscribe topics for "homie/"HDEVICE"/display/text/set
   hsubDspTxt = "homie/" + hdevice + "/display/text/set";
 
-  // creat the subscribe topic for "home/"HDEVICE"/control/cmd/set
-  //hsubCmdSet = "homie/" + hdevice + "/control/cmd/set";
-#endif
+ #endif
 
   // Sanitize hname -> hlname
   hlname = String(hname);
@@ -182,43 +179,64 @@ void mqtt_setup(const char *wid, const char *wpw, const char *mqsrv, int mqport,
   mqtt_homie_pub(tmp, "display", true);
 #endif
 
-  // -------------- begin node control ---------------------
+  // -------------- begin node ranger ---------------------
 #ifdef RANGER
-  // "homie/"HDEVICE"/control/$name" -> hname (Un sanitized)
-  tmp = "homie/" + hdevice + "/control/$name";
+  // "homie/"HDEVICE"/ranger/$name" -> hname (Un sanitized)
+  tmp = "homie/" + hdevice + "/ranger/$name";
   mqtt_homie_pub(tmp, hname, true);
   
-  // "homie/"HDEVICE"/control/$type" ->  "sensor"
-  tmp = "homie/" + hdevice + "/control/$type";
-  mqtt_homie_pub(tmp, "control", true);
+  // "homie/"HDEVICE"/ranger/$type" ->  "sensor"
+  tmp = "homie/" + hdevice + "/ranger/$type";
+  mqtt_homie_pub(tmp, "ranger", true);
   
-  // "homie/"HDEVICE"/control/$properties" -> "cmd, text"
-   tmp = "homie/" + hdevice + "/control/$properties";
-  mqtt_homie_pub(tmp, "cmd", true);
+  // "homie/"HDEVICE"/ranger/$properties" -> "cmd, distance"
+   tmp = "homie/" + hdevice + "/ranger/$properties";
+  mqtt_homie_pub(tmp, "cmd,distance", true);
 
-  // Property 'cmd' of 'control' node
-  // "homie/"HDEVICE"/control/cmd/$name ->, Unsanitized hname
-   tmp = "homie/" + hdevice + "/control/cmd/$name";
+  // Property 'distance' of 'ranger' node
+  tmp = "homie/" + hdevice + "/ranger/distance/$name";
   mqtt_homie_pub(tmp, hname, true); 
 
-  // "homeie"HDEVICE"/control/cmd/$datatype" -> "string"
-  tmp = "homie/" + hdevice + "/control/cmd/$datatype";
-  mqtt_homie_pub(tmp, "string", true);
+  // "homeie"HDEVICE"/ranger/distance/$datatype" -> "integer"
+  tmp = "homie/" + hdevice + "/ranger/distance/$datatype";
+  mqtt_homie_pub(tmp, "integer", true);
 
-  // "homie/"HDEVICE"/control/cmd/$settable" -> "false"
-  tmp = "homie/" + hdevice + "/control/cmd/$settable";
+  // "homie/"HDEVICE"/ranger/distance/$settable" -> "false"
+  tmp = "homie/" + hdevice + "/ranger/distance/$settable";
    mqtt_homie_pub(tmp, "false", true);
 
-  // "homie/"HDEVICE"/control/cmd/$name" -> Unsantized hname
-  tmp = "homie/" + hdevice + "/control/cmd/$name";
+  // "homie/"HDEVICE"/ranger/distance/$name" -> Unsantized hname
+  tmp = "homie/" + hdevice + "/ranger/distance/$name";
   mqtt_homie_pub(tmp, hname, true);
 
-  // "homie/"HDEVICE"/control/cmd/$retained" -> "true"
-  tmp = "homie/" + hdevice + "/control/cmd/$retained";
+  // "homie/"HDEVICE"/ranger/distance/$retained" -> "true"
+  tmp = "homie/" + hdevice + "/ranger/distance/$retained";
+  mqtt_homie_pub(tmp, "false", true);
+
+
+
+  // Property 'cmd' of 'ranger' node
+  // "homie/"HDEVICE"/ranger/cmd/$name ->, Unsanitized hname
+   tmp = "homie/" + hdevice + "/ranger/cmd/$name";
+  mqtt_homie_pub(tmp, hname, true); 
+
+  // "homeie"HDEVICE"/ranger/cmd/$datatype" -> "string"
+  tmp = "homie/" + hdevice + "/ranger/cmd/$datatype";
+  mqtt_homie_pub(tmp, "string", true);
+
+  // "homie/"HDEVICE"/ranger/cmd/$settable" -> "false"
+  tmp = "homie/" + hdevice + "/ranger/cmd/$settable";
+   mqtt_homie_pub(tmp, "false", true);
+
+  // "homie/"HDEVICE"/ranger/cmd/$name" -> Unsantized hname
+  tmp = "homie/" + hdevice + "/ranger/cmd/$name";
+  mqtt_homie_pub(tmp, hname, true);
+
+  // "homie/"HDEVICE"/ranger/cmd/$retained" -> "true"
+  tmp = "homie/" + hdevice + "/ranger/cmd/$retained";
   mqtt_homie_pub(tmp, "false", true);
   // ----------- end node control ------------------
 
-  // begin node autoranger
   // end node - autoranger
 #endif
 #ifdef DISPLAYG
@@ -288,9 +306,10 @@ void mqtt_callback(char* topic, byte* payl, unsigned int length) {
   Serial.print(" payload: ");
   Serial.println(payload);
 
-
+  #ifdef RANGER
   if (! strcmp(hsubRgrSet.c_str(), topic)) {
      controlCb(topic, payload);    // in this file, for now.
+     return;
   } else if (! strcmp(hsubDistance.c_str(), topic)) { 
     int d = atoi(payload);
     if (d < 0)
@@ -298,11 +317,18 @@ void mqtt_callback(char* topic, byte* payl, unsigned int length) {
     else if (d > 3600)
       d = 3600;
     rgrCBack(rgr_mode, d);
-  } else if (! strcmp(hsubDspCmd.c_str(), topic)) {
+    return;
+  }
+  #endif
+  #ifdef DISPLAYG
+  if (! strcmp(hsubDspCmd.c_str(), topic)) {
       controlCb(topic, payload);    // in this file, for now.
+      return;
   } else if (! strcmp(hsubDspTxt.c_str(), topic)) {
     dspCBack(true, payload);
+    return;
   }
+  #endif
 }
 
 void mqtt_reconnect() {
@@ -374,15 +400,22 @@ void mqtt_homie_pub(String topic, String payload, bool retain) {
  
 }
 
+#ifdef RANGER
 void mqtt_ranger_set_dist(int d) {
- char t[8];
- Serial.print("mqtt pub ");
- itoa(d, t, 10);
- Serial.print(hpubDistance);
- Serial.print(" ");
- Serial.println(t);
- mqtt_homie_pub(hpubDistance, t, false);
+  char t[8];
+  Serial.print("mqtt pub ");
+  itoa(d, t, 10);
+  Serial.print(hpubDistance);
+  Serial.print(" ");
+  Serial.println(t);
+  mqtt_homie_pub(hpubDistance, t, false);
 }
+
+void mqtt_ranger_show_place(const char *str) {
+  mqtt_homie_pub(hpubRgrCmd, str, false);
+
+}
+#endif
 
 // Called from sketch's loop()
 void mqtt_loop() {
@@ -430,62 +463,50 @@ void processSettingsJson(DynamicJsonDocument doc) {
   if (doc["mode"]) {
     const char *mode = doc["mode"];
     if (! strcmp(mode, "guide")) {
-
+      rgr_mode = RGR_GUIDE;
     }
     else if (! strcmp(mode, "once")) {
-
+      rgr_mode = RGR_ONCE;
+      int d = get_distance();
+      mqtt_ranger_set_dist(d);
     }
     else if (! strcmp(mode, "free")) {
-
+      rgr_mode = RGR_FREE;
     }
   }
-  int every = EVERY;             // report every <n> seconds 
+  
   if (doc["every"]) {
-    every = doc["every"];
+    every_rate = doc["every"];
   }
 
-  int keep_alive = KEEP_ALIVE ;    // default 4 hrs in (4 * 50 * 60)
   if (doc["keep-alive"]) {
-    keep_alive = doc["keep-alive"];
+    keep_alive_rate = doc["keep-alive"];
   }           
 
-  int sample = SAMPLE;             // read sensor every n seconds
+ 
   if (doc["sample"]) {
-    sample = doc["sample"];
+    sample_rate = doc["sample"];
   }
 
-  int range_low = RANGE_LOW;
   if (doc["range-low"])  range_low = doc["range-low"];
 
-  int range_high = RANGE_HIGH;
   if (doc["range-high"])  range_high = doc["range-high"];
   
-  int slopH = SLOPH;
   if (doc["slopH"]) slopH = doc["slopH"];
 
-  int slopL = SLOPL;
   if (doc["slopL"]) slopH = doc["slopL"];
 
-  int average = AVERAGE;
-  if (doc["average"]) average = doc["average"];
+  if (doc["average"]) nSamples = doc["average"];
 
-  boolean report_all = REPORT_ALL;
-  if (doc["report-all"]) report_all = doc["report_all"];
+  if (doc["bounds_low"]) boundsL = doc["bounds-low"];
 
-  int bounds_low = BOUNDS_LOW;
-  if (doc["bounds_low"]) bounds_low = doc["bounds-low"];
-
-  int bounds_high = BOUNDS_HIGH;
-  if (doc["bounds_high"]) bounds_high = doc["bounds-high"];
+  if (doc["bounds_high"]) boundsH = doc["bounds-high"];
 
 #ifdef DISPLAYG
-  const char* guide_low = GUIDE_LOW;
   if (doc["guide-low"]) guide_low = doc["guide-low"];
 
-  const char* guide_high = GUIDE_HIGH;
   if (doc["guide_high"]) guide_high = doc["guide_high"];
 
-  const char* guide_target = GUIDE_TARGET;
   if (doc["guide-target"]) guide_target = doc["guide-target"];
 
 #endif // DISPLAY and 

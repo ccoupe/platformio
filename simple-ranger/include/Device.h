@@ -6,7 +6,7 @@
 
 #define MQTT_SERVER "192.168.1.3"
 #define MQTT_PORT 1883
-#define MQTT_DEVICE "esp_garage_ranger"
+#define MQTT_DEVICE "esp_garage_test"
 
 // For Homie compatible topic structure - These are stored in eeprom if WRITE_FLASH
 #define HDEVICE "audi_stall"

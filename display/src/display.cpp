@@ -45,6 +45,13 @@ void lcdBold(bool aVal) {
 }
 #endif
 
+void displayOn() {
+
+}
+
+void displayOff() {
+  
+}
 
 void display_init() {
 #if defined(DISPLAY_U8)
@@ -98,8 +105,8 @@ void myterm(int x, int y, String ln) {
   //Serial.print("x: "+String(x)+" y: "+String(y));
   if (y <= 0) y = 1;
   y = y - 1;
-  //Serial.print(" len: "+String(len)+" wid: "+String(wid)+" ");
-  //Serial.println(ln);
+  Serial.print(" len: "+String(ln.length())+" wid: "+String(wid)+" ");
+  Serial.println(ln);
   if (x < 0) {
     int xp = (320 - wid) / 2;
     if (xp < 0) xp = 0;  // ensure it is not negative
@@ -174,6 +181,8 @@ void doDisplay(boolean state, String strarg) {
    * we always clear the display. str arg may have \n inside
    * to separate lines.
    */
+#ifndef DISPLAYG
+#else
   if (strarg.c_str()[0]=='{') {
     displayV2(strarg);
   }
@@ -191,6 +200,7 @@ void doDisplay(boolean state, String strarg) {
     char *str;
     str = strdup(argstr);
     int len = strlen(str);
+    //Serial.println("doDisplay has "+String(argstr));
     // count them
     int j = 0;
     for (int i = 0; i < len; i++) {
@@ -257,8 +267,10 @@ void doDisplay(boolean state, String strarg) {
     }
   free(str);
   }
+#endif
 }  
 
+/*
 int fill_line(int lnum, char **words, int wdlens[], int wdst, int maxw, int wid) {
   int len = 0;
   char ln[wid + 1] = {0};
@@ -299,6 +311,7 @@ int fill_line(int lnum, char **words, int wdlens[], int wdst, int maxw, int wid)
 #endif
   return maxw;
 }
+*/
 
 void displayV2(String jsonstr) {
     Serial.print("JSON: ");

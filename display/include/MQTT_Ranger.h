@@ -12,5 +12,5 @@ extern void mqtt_setup(const char *wusr, const char *wpw,
     void (*dcb)(boolean, String));
 extern void mqtt_loop();
 extern void mqtt_ranger_set_dist(int);
-
+extern void mqtt_ranger_show_place(const char *str);
 #endif

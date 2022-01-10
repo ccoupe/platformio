@@ -1,22 +1,39 @@
 #ifndef MY_DEVICE_H
 #define MY_DEVICE_H
 
-#define WIFI_ID "CJCNET"
-#define WIFI_PASSWORD "LostAgain2"
-
-#define MQTT_SERVER "192.168.1.3"
-#define MQTT_PORT 1883
-#define MQTT_DEVICE "esp32_test_ranger"
-
-// For Homie compatible topic structure
+#ifndef HDEVICE
 #define HDEVICE "test_ranger"
-#define HNAME "ESP32 in TrumpyBear"        // Display name is OK
+#endif
+#ifndef HNAME
+#define HNAME "ESP32 in AudiStall"        // Display name is OK
+#endif
+#ifndef WIFI_ID
+#define WIFI_ID "CJCNET"
+#endif
+#ifndef WIFI_PASSWORD
+#define WIFI_PASSWORD "LostAgain2"
+#endif
+#ifndef MQTT_SERVER
+#define MQTT_SERVER "192.168.1.3"
+#endif
+#ifndef MQTT_PORT
+#define MQTT_PORT 1883
+#endif
+#ifndef MQTT_DEVICE
+#define MQTT_DEVICE "esp32_" HDEVICE
+#endif
 
-//  HC-SR04 ultrasonic sensorPin numbers
-#define echoPin 23
-#define trigPin 4
+//  Ultrasonic sensorPin numbers HR | SR504
+#ifdef RANGER
+#ifndef ECHOPIN
+#define ECHOPIN 22
+#endif
+#ifndef TRIGGERPIN
+#define TRIGGERPIN 21
+#endif
+#endif
 
-// Define display 
+// Define display - do in platformio.ini
 //#define DISPLAY_U8
 //#define LCD160X
 //#define TFT_SPI 
@@ -43,7 +60,7 @@
 #define RANGE_HIGH 400
 #endif
 #ifndef EVERY
-#define EVERY 60
+#define EVERY 5
 #endif
 #ifndef KEEP_ALIVE
 #define KEEP_ALIVE 14400
@@ -95,15 +112,40 @@
 /* 
  * Ranger modes
  * ONCE - signal once when object stop withing given distance (+/-) 
- * CONTINOUS - single whenever object within distance (multiple signals)
+ * GUIDE - signal whenever object within distance (multiple signals)
  * FREE - signal continously - makes for a very busy MQTT
  */
 #define RGR_ONCE  0    
 #define RGR_GUIDE 1
 #define RGR_FREE  2
+#define RGR_TEST  3
+
+// MQTT_Ranger.cpp sets these variables. Storage in ranger.cpp
+extern int rgr_mode;
+extern int sample_rate; 
+extern int every_rate;
+extern unsigned keep_alive_rate;
+extern int range_low;
+extern int range_high;
+extern int slopL;
+extern int slopH;
+extern int nSamples;
+extern int boundsL;
+extern int boundsH;
+extern const char* guide_low;
+extern const char* guide_high;
+extern const char* guide_target;
 
 // declare extern vars and functions. And Classes.
 extern void display_init();
 extern void doDisplay(boolean state, String strarg);
 extern void displayV2(String jsonstr);
+extern void rangerOn();
+extern void rangerOff();
+extern void displayOn();
+extern void displayOff();
+#ifdef RANGER
+extern int get_distance();
+#endif
+
 #endif

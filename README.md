@@ -40,14 +40,17 @@ The display project is the latest and presumably better variation of ranger.
 Features can be compiled in or ommitted. It is OTA capable - the update
 is triggered by and mqtt message that specifies the url of the .bin file.
 
-Display doesn't have to habe a ranger. I can just be a message display.
+Display doesn't have to have a ranger. It can just be a message display.
+or just a ranger without a display, or both.
 
 It has slightly better behaviour for longer messages. 
 
 V2 - when available will have a much better API including font switching
 and colors.
 
-See platformio.ini - this is where the -D command line options are specified
+There is a bash script, newranger.sh which selectively duplicates 'display'
+into a new directory where platformio.ini and Devices.h can be customized
+for that (new) devices. You must modify those two files. 
 
 ### MQTT
 

@@ -8,7 +8,18 @@
  * listening on topic homie/test_ranger/display/text/set
  * listening on topic homie/test_ranger/display/mode/set
  * 
- * Font #6 is rouchly 16 chars x 4 lines in 320px width 240 height
+ * The distance in cm is published to 'homie/audi_stall/ranger/distance'
+ * Each 4 hours (14400 secs  we publish anyway.
+ * Listen on  homie/audi_stall/ranger/distance/set for payloads:
+ *   {"period": secs}
+ *   Note this is Legacy. 
+ * Listen on homie/audi_stall/control/cmd/set for payloads:
+ *   {"cmd: "update", "url": "<string>"}
+ *   {"period": secs}
+ *   {"upper": value}
+ *   {"lower": value}
+ *
+ * Font #6 is roughly 12 chars x 4 lines in 320px width 240 height
 */
  
 #include <Arduino.h> 
@@ -21,9 +32,42 @@
 #define INACTIVE 0
 int state = INACTIVE;
 
+#ifdef RANGER
 // Forward declares (and externs?)
 int get_distance();
 boolean dist_display(int d, int target_d);
+// Settable vars
+int rgr_mode = RGR_FREE;
+int sample_rate = SAMPLE;
+int every_rate = EVERY;
+int every = EVERY;          // counts down.  When zero, report, reset to EVERY
+int averageNum = AVERAGE;
+unsigned keep_alive_rate = KEEP_ALIVE;
+unsigned keep_alive = KEEP_ALIVE;
+int nSamples = SAMPLE;
+int slopL = SLOPL;
+int slopH = SLOPH;
+int boundsL = BOUNDS_LOW;
+int boundsH = BOUNDS_HIGH;
+int range_low = RANGE_LOW;
+int range_high = RANGE_HIGH;
+#ifdef DISPLAYG
+const char *guide_low = GUIDE_LOW;
+const char *guide_high = GUIDE_HIGH;
+const char* guide_target = GUIDE_TARGET;
+#endif
+// statics because scoping needs them
+int *samples;               // used as an array
+uint32_t target_d = 0;
+boolean rgr_running = false;
+uint32_t next_pub = 25;
+uint32_t next_tick = 0;
+int sample_cnt = 0;
+int sample_avg = 0;
+int idx = 0;
+int last_value = 0;
+boolean report_average;
+#endif
 
 long lastMsg = 0;
 char msg[50];
@@ -46,12 +90,6 @@ void IRAM_ATTR onTimer(){
   xSemaphoreGiveFromISR(timerSemaphore, NULL);
 }
 
-
-int32_t target_d = 0;
-boolean rgr_running = false;
-uint32_t next_pub = 1;
-uint32_t next_tick = 0;
-
 // Want to publish to mqtt every 5 seconds or (so)
 // beware of the 'cleverness' in tick counting and what could go 
 // wrong. Hint: there are many ways to fail
@@ -68,19 +106,25 @@ void wait_for_pub(int d) {
   }
 }
 
-// Called from mqtt with distance to measure towards
-// anything over 400cm/13ft is too far to care about
+
+// Called from mqtt with distance to measure towards (guide mode)
+// Modes Free, Once, Guide
+// Every sample seconds - get sensor value.
+//   Average it if not out-of-bounds pass value to
+//     if everyNnt < 0, set everyCnt = EVERY, 
+// Assuming the distance is not out of bounds and in guide post range and...
+//
 // Beware - this can/will be called re-entrantly to cancel. Should protect rgr_running var
 // and the ISR stuff but that's a lot work and testing for those failures is difficult.
 void doRanger(int rgrmode, int dist) {
-  //int next_pub = 0;
   if (dist == 0) {   
     rgr_running = false;
     Serial.println("set to zero, stopping?");
     return;
   }
+#ifdef RANGER
   Serial.println("Begin ranger");
-  if (rgrmode == RGR_SNAP) {
+  if (rgrmode == RGR_ONCE) {
     int d = get_distance();
     mqtt_ranger_set_dist(d);
   } else if (rgrmode == RGR_FREE) {
@@ -93,7 +137,18 @@ void doRanger(int rgrmode, int dist) {
       doDisplay(true, tmp);
       mqtt_ranger_set_dist(d);
     }
-  } else {
+  } else if (rgrmode == RGR_TEST) {
+    int d;
+    while ((d = get_distance())) {
+      char tmp[8];
+      d = get_distance();
+      itoa(d, tmp, 10);
+      doDisplay(true, tmp);
+      mqtt_ranger_set_dist(d);
+      delay(1000);
+        
+    }
+  } else if (rgrmode == RGR_GUIDE) {
     target_d = dist;
     rgr_running = true;
     // don't run for more than a few minutes
@@ -105,7 +160,7 @@ void doRanger(int rgrmode, int dist) {
         break;
       if (d > 2 && d < 500) {
         if (dist_display(d, target_d) == true) {
-          if (rgrmode == RGR_CONTINOUS)
+          if (rgrmode == RGR_GUIDE)
             wait_for_pub(d);
           else {
             mqtt_ranger_set_dist(d);
@@ -124,9 +179,10 @@ void doRanger(int rgrmode, int dist) {
       mqtt_ranger_set_dist(0);
     }
   }
+#endif
 }
 
-
+#ifdef RANGER
 #define ADJMIN 10
 #define ADJMAX 10
 
@@ -156,13 +212,13 @@ boolean dist_display(int d, int target_d) {
 
 int get_distance() {
   float duration, distance;
-  digitalWrite(trigPin, LOW);
+  digitalWrite(TRIGGERPIN, LOW);
   delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
+  digitalWrite(TRIGGERPIN, HIGH);
   delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
+  digitalWrite(TRIGGERPIN, LOW);
 
-  duration = pulseIn(echoPin, HIGH);
+  duration = pulseIn(ECHOPIN, HIGH);
   distance = (duration*.0343)/2;
   Serial.print("Distance: ");
   Serial.println(distance);
@@ -171,15 +227,66 @@ int get_distance() {
   return (int)distance;
 }
 
+void rangerOn() {
+
+}
+
+void rangerOff() {
+
+}
+
+int check_measurement(int d, boolean publish) {
+  if (! report_average) {
+    // is d 1cm +/- from the average? 
+    if (d < last_value - slopL || d > last_value + slopH) {
+      // It is not 'close' to average. Is it within reporting limits?
+      if (d >= boundsL && d <= boundsH) {
+        publish = true;
+      }
+    }
+  }
+  samples[idx++] = d;
+  if (idx >= nSamples) idx = 0;
+  int sample_sum = 0;
+  for (int i = 0; i < nSamples; i++) {
+    sample_sum += samples[i];
+  }
+  sample_avg = sample_sum / nSamples;
+  if (report_average) {
+    // is avg +/- sensitivity different enough from last published value?
+    if (sample_avg < last_value - slopL || sample_avg > last_value + slopH) {
+      // is it within the limits
+      if (sample_avg >= boundsL && sample_avg <= boundsH) {
+        publish = true;
+      }
+    }
+  }
+  if (sample_cnt < nSamples) {
+    sample_cnt++;
+    return -1;  // don't publish until samples array is filled 
+  } 
+  Serial.println("d: "+String(d)+ " idx: "+String(idx)+" avg: "+String(sample_avg)+
+    " sum: "+String(sample_sum));
+  if (publish) {
+    if (report_average) d = sample_avg;
+    last_value = d;
+    return d;
+  } else {
+    return -1;
+  }
+}
+#endif
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting");
-
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-
+#ifdef RANGER
+  pinMode(TRIGGERPIN, OUTPUT);
+  pinMode(ECHOPIN, INPUT);
+#endif
+#ifdef DISPLAYG
   display_init();
-
+#endif
   mqtt_setup(WIFI_ID, WIFI_PASSWORD, MQTT_SERVER, MQTT_PORT, MQTT_DEVICE,
       HDEVICE, HNAME, doRanger, doDisplay);
 
@@ -202,9 +309,59 @@ void setup() {
 }
 
 void loop() {
+  int newd;
+#ifdef WRITE_FLASH
+  return;
+#endif
+  if (xSemaphoreTake(timerSemaphore, 0) == pdTRUE) {
+    keep_alive--;
+    if (keep_alive <= 0) {
+      keep_alive = keep_alive_rate;
+      int d = get_distance();
+      newd = check_measurement(d, true);
+      if (newd > 0) {
+        mqtt_ranger_set_dist(d);
+      }
+    } else {
+      every--;
+      if (every <= 0) {
+        // time to take a measurement
+        int d = get_distance();
+        if (rgr_mode == RGR_FREE) {
+          newd = check_measurement(d, false);
+          if (newd != d) {
+            mqtt_ranger_set_dist(newd);
+          }
+        } else if (rgr_mode == RGR_GUIDE ) {
+          if (d <= range_low) {
+            Serial.println("Move forward");
+#ifdef DISPLAYG
+            doDisplay(true, guide_low);
+#endif
+            mqtt_ranger_show_place("<");
+          } else if (d >= range_high) {
+            Serial.println("Move backwards");
+#ifdef DISPLAYG
+            doDisplay(true, guide_high);
+#endif
+            mqtt_ranger_show_place(">");
+          } else {
+            Serial.println("Stay still");
+#ifdef DISPLAYG
+            doDisplay(true, guide_target);
+#endif
+            mqtt_ranger_show_place("=");
+          }
+        }
+        // reset every timer
+        every = every_rate;
+      }
+    }
+  }
   mqtt_loop();
-  //delay(200);
-  //doRanger(RGR_CONTINOUS, 75);  //test
+#ifdef RANGER 
+  // doRanger(RGR_GUIDE, 75);  //test
+#endif
    
 }
 
