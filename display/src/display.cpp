@@ -1,6 +1,7 @@
 // Display Layout Version 2
 #include <Arduino.h> 
 #include "Device.h"
+#include "MQTT_Ranger.h"
 /* 
 * The TFT_eSPI library has some 'terminal' or character / line drawing 
 * methods. X and Y are still pixels. For these calls Y appears to
@@ -18,31 +19,30 @@
 TFT_eSPI lcd = TFT_eSPI(TFT_WIDTH, TFT_HEIGHT);
 
 #elif defined(DISPLAY_U8)
-#include <U8x8lib.h>
-U8X8_SH1106_128X64_NONAME_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);
+//#include <U8x8lib.h>
+#include <U8g2lib.h>
+//U8X8_SH1106_128X64_NONAME_HW_I2C u8x8(/* reset=*/ U8X8_PIN_NONE);
+U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
 #elif defined(LCD_160X)
 #include <LiquidCrystal_I2C.h> 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 #endif
 
 void myterm(int x, int y, String ln);
+
+#ifdef TFT_SPI
 int fontHgt;
+#endif
 
 #ifdef DISPLAY_U8
-const uint8_t colLow = 4;
-const uint8_t colHigh = 13;
-const uint8_t rowCups = 0;
-const uint8_t rowState = 2; // Double spacing the Rows
-const uint8_t rowTemp = 4; // Double spacing the Rows
-const uint8_t rowTime = 6; // Double spacing the Rows
-
-void lcdBold(bool aVal) {
-  if (aVal) {
-    u8x8.setFont(u8x8_font_victoriabold8_r); // BOLD
-  } else {
-    u8x8.setFont(u8x8_font_victoriamedium8_r); // NORMAL
-  }
-}
+int display_columns;
+int display_lines;
+int device_width;
+int max_char_width;
+int spaceWidth;
+int chosen_font = 1;      // modified by Mqtt {"settings": {"font": <n>}}}
+int fontHgt = 16;
+int baseline;
 #endif
 
 void displayOn() {
@@ -50,22 +50,70 @@ void displayOn() {
 }
 
 void displayOff() {
-  
+#if defined(DISPLAY_U8)
+  //u8x8.clear();
+  u8g2.clear();
+#elif defined(TFT_SPI)
+  lcd.fillScreen(TFT_BLACK);
+#elif defined(LCD160X)
+  lcd.nobacklight();
+#endif
 }
 
+void switch_font(int incoming) {
+  device_width = u8g2.getDisplayWidth();
+  if (incoming == 2) {
+    //u8g2.setFont(u8g2_font_inr16_mf); // bit too tall
+    u8g2.setFont(u8g2_font_t0_22_tf); 
+    display_columns = 16;
+    display_lines = 3;
+  } else if (incoming == 3) {
+    // u8g2.setFont(u8g2_font_t0_11_tf); // bit too small
+    u8g2.setFont(u8g2_font_7x14_tf);
+    display_columns = 16;
+    display_lines = 4;
+  } else {
+    // Font 1 is the Big Font - also the default
+    // u8g2.setFont(u8g2_font_inr21_mf); // bit too tall
+    u8g2.setFont(u8g2_font_helvB18_tf);
+    display_columns = 8;
+    display_lines = 2;
+  }
+  baseline = u8g2.getAscent();
+  fontHgt = u8g2.getMaxCharHeight() + 1;
+  spaceWidth = u8g2.getUTF8Width(" ");
+  max_char_width =u8g2.getMaxCharWidth();
+}
+
+// This is tcalled from the Arduino setup()
 void display_init() {
 #if defined(DISPLAY_U8)
-  u8x8.begin();
-  lcdBold(true); // You MUST make this call here to set a Font
-  // u8x8.setPowerSave(0); // Too lazy to find out if I need this
-  u8x8.clear();
-  u8x8.setCursor(0,rowCups);
-  u8x8.print(HDEVICE);
-  u8x8.setCursor(0,rowState);
-  u8x8.print(__DATE__);
-  u8x8.setCursor(0,rowTemp);
-  u8x8.print(__TIME__);
-#elif defined(TFT_SPI)
+  //Serial.println("leaving display_init()");
+  //return;
+  u8g2.begin();
+  u8g2.firstPage();
+  do {
+    u8g2.clear();
+    switch_font(3);
+    int y = baseline;
+    u8g2.drawUTF8(0, y, HDEVICE);
+    y += fontHgt;
+    u8g2.drawUTF8(0, y, __DATE__);
+    y += fontHgt;
+    u8g2.drawUTF8(0, y, __TIME__);
+    y += fontHgt;
+    u8g2.drawUTF8(3*8, y ,"Hello");
+    y += fontHgt;
+    u8g2.drawUTF8(0, y,"There");
+ } while (u8g2.nextPage());
+/* 
+  u8x8.print();
+  u8x8.setCursor(0,5);
+  u8x8.print("Big Boy");
+  u8x8.setCursor(0,6);
+  u8x8.print("Seven Lines!");
+*/  
+ #elif defined(TFT_SPI)
   Serial.println("Init TFT_SPI");
   lcd.init();
   lcd.setRotation(1);
@@ -105,8 +153,8 @@ void myterm(int x, int y, String ln) {
   //Serial.print("x: "+String(x)+" y: "+String(y));
   if (y <= 0) y = 1;
   y = y - 1;
-  Serial.print(" len: "+String(ln.length())+" wid: "+String(wid)+" ");
-  Serial.println(ln);
+  //Serial.print(" len: "+String(ln.length())+" wid: "+String(wid)+" ");
+  //Serial.println(ln);
   if (x < 0) {
     int xp = (320 - wid) / 2;
     if (xp < 0) xp = 0;  // ensure it is not negative
@@ -117,22 +165,29 @@ void myterm(int x, int y, String ln) {
     lcd.print(ln);
   }
 #elif defined(DISPLAY_U8)
-  // x and y in half characters -  SORT OF
+  // x and y in characters and lines -  SORT OF
   //Serial.println("x: "+String(x)+" y: "+String(y)+" "+ln);
   if (y <= 0) y = 1;
   y--;
+  if (y >= display_lines) return;
   if (x < 0) {
-    int len = ln.length();
-    int xp = (DISPLAY_COLUMNS - len) / 2;
-    if (xp < 0) xp = 0;
+    //int len = ln.length();
+    //int xp = (display_columns - len) / 2;
+    //if (xp < 0) xp = 0;
     //Serial.println("xp: "+String(xp));
-    u8x8.setCursor(xp*2, y*4);
-    u8x8.print(ln);
+    //u8x8.setCursor(xp, y*ln_step);
+    //u8x8.print(ln);
+    //getMaxCharWidth
+    int xp = (device_width - u8g2.getUTF8Width(ln.c_str()))/2;
+    u8g2.setCursor(xp, (y+1)*fontHgt);
+    u8g2.print(ln);
   } else {
     x--;
     if (x < 0) x = 0;
-    u8x8.setCursor(x,y*4);
-    u8x8.print(ln);
+    //u8x8.setCursor(x,y*ln_step);
+    //u8x8.print(ln);
+    u8g2.setCursor(x,(y+1)*fontHgt);
+    u8g2.print(ln);
   }
 #elif defined(LCD160X)
     int wid = strlen(ln);
@@ -157,14 +212,73 @@ void myterm(int x, int y, String ln) {
  * 
  * Version 2 allows json string {...} in arg 'strarg'
 */
+typedef struct {
+    short   beg;
+    short   end;
+} lnMark;
+lnMark lnMarks[0];
+char *wordLst[0];
 
-//   u8x8.setFont(u8x8_font_profont29_2x3_r); // only 8 chars across
-//   u8x8.setFont(u8x8_font_inr21_2x4_f); // only 8 chars across
+void displayLines(int nwords,char *words[]) {
+  // words is an array of char pointers
+  if (nwords <= display_lines) {
+    int xp;
+    int y = baseline;
+    for (int i=0; i < nwords; i++) {
+      xp = (device_width - u8g2.getUTF8Width(words[i]))/2;
+      u8g2.setCursor(xp, y);
+      u8g2.print(words[i]);
+      y += fontHgt;
+    }
+  } else {
+    // already tricky, it's not getting better.
+    // Fill a line until the new word plus a space doesn't fit. 
+    // Flush that line (centered - because why not?)
+    // Continue filling next line.
+    char ln[display_columns+4];
+    int llen = 0;
+    int j = 0;
+    int y = baseline;
+    //char *p = ln;
+    for (int i = 0; i < nwords; i++) {
+      int wlen = u8g2.getUTF8Width(words[i]) + spaceWidth;
+      if ((llen + wlen) > device_width) {
+        // won't fit flush centered line
+        int x = (device_width - u8g2.getUTF8Width(ln)) / 2;
+        u8g2.setCursor(x, y);
+        u8g2.print(ln);
+        j = 0;
+        ln[j] = '\0';
+        y = y + fontHgt;
+      } 
+      if (j == 0) {
+        // first word on line
+        j = strlen(words[i]);
+        strcpy(ln, words[i]);
+        llen =  u8g2.getUTF8Width(ln);
+      } else {
+        // append to line
+        ln[j++]=' ';
+        strcpy(ln+j, words[i]);
+        j = strlen(ln);
+        llen =  u8g2.getUTF8Width(ln);
+      }
+    }
+    // anything left in line? It's very likely
+    if (j != 0) {
+      int x = (device_width - u8g2.getUTF8Width(ln)) / 2; 
+      u8g2.setCursor(x, y);
+      u8g2.print(ln);
 
+    }
+  }
+
+}
 void start_screen() {
 #if defined( DISPLAY_U8)
-    u8x8.clear();
-    u8x8.setFont(u8x8_font_profont29_2x3_r); // 8 chars across. 2 Lines
+    //u8x8.clear();
+    u8g2.clear();
+    switch_font(chosen_font);
 #elif defined(TFT_SPI)
     lcd.fillScreen(TFT_BLACK);
     lcd.setTextFont(4);
@@ -174,6 +288,12 @@ void start_screen() {
     lcd.backlight();
     lcd.clear();
 #endif
+}
+
+void doDisplay(boolean state, int num) {
+  char tmp[12];
+  itoa(num, tmp, 10);
+  doDisplay(state, tmp);
 }
 void doDisplay(boolean state, String strarg) {
   /* if str == Null then turn display on/off based on state 
@@ -187,131 +307,125 @@ void doDisplay(boolean state, String strarg) {
     displayV2(strarg);
   }
   if (state == false) {
+#if defined(DISPLAY_U8)
+    u8g2.firstPage();
+    do { start_screen(); } while (u8g2.nextPage());
+#else
     start_screen();
+#endif
   } else {
-    start_screen();
-    const char *argstr = strarg.c_str();
-    if (argstr == (char *)0) {
+
+    u8g2.firstPage();
+    do {
+      start_screen();
+      const char *argstr = strarg.c_str();
+      if (argstr == (char *)0) {
          Serial.println("display on without string");
         return;
-    }
-    // special mode handling finished. Screen is on and setup.
-    // Separate input into words
-    char *str;
-    str = strdup(argstr);
-    int len = strlen(str);
-    //Serial.println("doDisplay has "+String(argstr));
-    // count them
-    int j = 0;
-    for (int i = 0; i < len; i++) {
-        if (str[i] == '\n' || str[i] == ' ') {
-            j++;
-        }
-    }
-    // Now setup array of pointers to word (substrings - modifiable not ROM)
-    int nwords = j+1;
-    //Serial.println("nwords: "+String(nwords));
-    char *words[nwords];         // easily run out of stack space ?
-    j = 0;
-    words[0] = str;
-    for (int i = 0; i < len; i++) {
-        if (str[i] == '\n' || str[i] == ' ') {
-            j++;
-            words[j] = str+i+1;     // ptr arith
-            str[i] = '\0';
       }
-    }
-
-    if (nwords <= DISPLAY_LINES) {
+      // special mode handling finished. Screen is on and setup.
+      // Separate input into words
+      char *str;
+      str = strdup(argstr);
+      int len = strlen(str);
+      int nwords = 0;
+      boolean ldsp = true;
+      boolean inwd = false;
+      for (int i = 0; i < len; i++) {
+        if (str[i] == '\n' || str[i] == ' ') {
+          if (ldsp) continue; // skip leading sp
+          ldsp = true;
+          if (inwd) {
+            nwords++;
+            inwd = false;
+          }
+        } else {
+          // not a space.
+          if (ldsp) ldsp = false;
+          inwd = true;
+        }
+      }
+      // Now setup array of pointers to word (substrings - modifiable not in ROM)
+      if (inwd) nwords += 1;
+      //Serial.println("nwords: "+String(nwords));
+      char *words[nwords];         // easily run out of stack space ?
+      int j = 0;                   // current word number 
+      words[0] = str;
+      ldsp = true;
+      inwd = false;
+      for (int i = 0; i < len; i++) {
+        if (str[i] == '\n' || str[i] == ' ') {
+          if (ldsp) continue; // skip continus sp
+          ldsp = true;
+          if (inwd) {
+            // finish word
+            str[i] = '\0';    // null char to end word
+            j++;
+            inwd = false;
+          }
+        } else {
+          // not a space.
+          if (ldsp) {
+            ldsp = false;
+            words[j] = str+i;  // pointer to first char of word
+          }
+          inwd = true;
+        }
+      }
+      
+      //for (int i = 0; i < nwords; i++) Serial.println("word: "+String(words[i]));
+#ifdef DISPLAY_U8
+      displayLines(nwords,words);
+#else
+      if (nwords <= display_lines) {
         // all words will be centered in individual lines
         int startln = 1;  // 1 relative, remember? 
-#if (DISPLAY_LINES > 2)
-        if (nwords < (DISPLAY_LINES - 1)) startln += 1;  //heuristic is fancy word
-#endif
+        if (display_lines > 2)
+          if (nwords < (display_lines - 1)) startln += 1;  //heuristic is fancy word
         for (int i=0; i < nwords; i++) {
             myterm(-1, i+startln, words[i]);
         }
-    } else {
-        // We'll have to pack words. Assume all characters are equal width
+      } else {
+        // We'll have to pack words. Try
         int ln = 1;
-        char t[DISPLAY_COLUMNS+2];
+        char t[display_columns+2];
         int wid = 0;        // index into partial line, 't'
 
         for (int i = 0; i < nwords; i++){
-            int len = strlen(words[i]);
-            //Serial.println(String(words[i])+":w len "+String(len)+" wid: "+String(wid));
-            if ((wid + len) >= DISPLAY_COLUMNS) {
-                // not enough room for current word
+          int len = strlen(words[i]);
+          //Serial.println(String(words[i])+":w len "+String(len)+" wid: "+String(wid));
+          if ((wid + len) >= display_columns) {
+            // not enough room for current word
                 // flush line
-                t[wid++] = '\0';
-                //Serial.println(String(t)+":ln flush");
-                myterm(-1, ln, String(t));
-                // start new line
-                ln++;
-                wid = 0;
-            }            
-            if (wid != 0) {
-                // not first word, overwrites null?
-                t[wid++] = ' ';
-                t[wid] = '\0';
-            }
-            strcpy(t+wid, words[i]);
-            wid = wid + len;
-            //Serial.println(String(t)+":ln part");
+            t[wid++] = '\0';
+            //Serial.println(String(t)+":ln flush");
+            myterm(-1, ln, String(t));
+            // start new line
+            ln++;
+            wid = 0;
+          }            
+          if (wid != 0) {
+            // not first word, overwrites null?
+            t[wid++] = ' ';
+            t[wid] = '\0';
+          }
+          strcpy(t+wid, words[i]);
+          wid = wid + len;
+          //Serial.println(String(t)+":ln part");
         }
         if (wid != 0) {
-            //Serial.println("flush leftovers");
-            t[wid++] = '\0';
-            myterm(-1, ln, t);  // left overs
+          //Serial.println("flush leftovers");
+          t[wid++] = '\0';
+          myterm(-1, ln, t);  // left overs
         }
-    }
-  free(str);
-  }
+      }
 #endif
+      free(str);
+    } while (u8g2.nextPage() );
+  }
+#endif // NDEF DISPLAYG
 }  
 
-/*
-int fill_line(int lnum, char **words, int wdlens[], int wdst, int maxw, int wid) {
-  int len = 0;
-  char ln[wid + 1] = {0};
-  int pos = 0;
-  for (int i = wdst; i < maxw; i++) {
-    if ((len + wdlens[i]) <= wid) {
-      strcat(ln, words[i]);
-      strcat(ln, " ");
-      len += (wdlens[i] + 1);
-    } else {
-      // would overflow, center, print and return
-      if (len <= wid) 
-         pos = (wid - len) / 2;
-#if defined(DISPLAY_U8)
-       u8x8.setCursor(pos*2, lnum*4);
-       u8x8.print(ln);
-#elif defined(TFT_SPI)
-      myterm(-1, lnum, ln);
-#elif defined(LCD160X)
-       lcd.setCursor(pos, lnum);
-       lcd.print(ln);
-#endif
-      return i;
-    }
-  }
-  // if we get here, there is a partial line to print.
-  if (len <= wid) 
-     pos = (wid - len) / 2;
-#if defined(DISPLAY_U8)
-  u8x8.setCursor(pos*2,lnum*4);
-  u8x8.print(ln);
-#elif defined(TFT_SPI)
-  lcd.setCursor(-1,lnum*4);
-  lcd.print(ln);
-#elif defined(LCD_160X)
-  lcd.setCursor(pos, lnum);
-  lcd.print(ln);
-#endif
-  return maxw;
-}
-*/
 
 void displayV2(String jsonstr) {
     Serial.print("JSON: ");

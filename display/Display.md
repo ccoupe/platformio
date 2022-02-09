@@ -1,10 +1,25 @@
 #Display and Ranger V2
 NOTE: The json  also defines what the Hubitat Elevation Driver has to look like.
   and a good hint at the needed global variables. The power of Specifications!
+  
 
+Scan for TODO in source.
+test-audi - ranger only
+test-display 
+test-ranger - both ranger and TFT
+x   Free
+x    Guide
+--- once
+test-ranger with Trumpy Bear. Modified ranger listening code? 
+  pi4 (test_trumpy) login.py listen on test_ranger/ranger/control/cmd
+Test ranger and display setting via json.
+Write Test display args & modes
+x {"cmd": "off"} U8 works. should be ok with TFT. LCD160X untested
+x {"cmd": "update", "url:" ..} works
+- font, color, text parsing
 
 ##Goals
-  Will Not Be Compatible with auto-ranger and simple ranger.
+  May Not Be Compatible with auto-ranger and simple ranger.
 
 ### MQTT
   homie/device/node/property/attribute
@@ -92,7 +107,10 @@ homie/<device>ranger/distance   <integer-centimeters>
   {"color": <rgb>       // screen color (background, default black or none.
   "blank-after": <n>    // screens goes blank <n> seconds after last message.
   "scroll: <bool>       // may not work with guide mode, default: false
+  "ttl": <secs>         // set default scroll buffer messages ttl
   }
+  
+  Scroll_lines[10]; lines[incr(next_line)] = {"text": ....} message
 
 
 <gd-str> := "text chars" | "color name" | <frag>
@@ -106,7 +124,9 @@ homie/<device>ranger/distance   <integer-centimeters>
    "fg": <rgb>,
    "bg": <rgb>,
    "text": <chars>
+   "ttl": <secs>  // time to live (scrolling) default is 300 secs.
   }
+  
   All optional, but w/o text: nothing matters.
   
 <rgb>

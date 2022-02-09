@@ -48,8 +48,6 @@ String hsubDspTxt;          // ../display/text/set -> subscribe to
 void (*rgrCBack)(int mode, int newval); // does autorange to near newval
 void (*dspCBack)(boolean st, String str);       
 
-//int rgr_mode = RGR_ONCE;
-
 byte macaddr[6];
 char *macAddr;
 char *ipAddr;
@@ -458,6 +456,7 @@ void tryUpdate(String url) {
 }
 
 // should be pointed to the key/value pairs
+extern int chosen_font;
 void processSettingsJson(DynamicJsonDocument doc) {
 #ifdef RANGER
   if (doc["mode"]) {
@@ -483,9 +482,10 @@ void processSettingsJson(DynamicJsonDocument doc) {
     keep_alive_rate = doc["keep-alive"];
   }           
 
- 
+  // TODO -- if sample rate changes need to replace array
+  // and reset idx.
   if (doc["sample"]) {
-    sample_rate = doc["sample"];
+    nSamples = doc["sample"];
   }
 
   if (doc["range-low"])  range_low = doc["range-low"];
@@ -521,6 +521,12 @@ void processSettingsJson(DynamicJsonDocument doc) {
 
   boolean do_scroll = SCROLL;
   if (doc["scroll"]) do_scroll = doc["scroll"];
+
+  int fn = doc["settings"]["font"];
+  if (fn > 0 && fn <= 3)  {
+    Serial.println("default font "+String(fn));
+    chosen_font = fn;
+  }
 #endif
 }
 
@@ -535,6 +541,7 @@ void controlCb(String topic, char *payload) {
     // not json - assume plain text to display
     doDisplay(true, payload);
 #endif
+  //Serial.println("controlCb "+String(payload));
   const size_t capacity = JSON_OBJECT_SIZE(2) + 180;
   DynamicJsonDocument doc(capacity);
 
@@ -569,9 +576,11 @@ void controlCb(String topic, char *payload) {
     processTextJson(doc);
     return;
   }
-  const char *settings = doc["settings"];
-  if (settings) {
-    processSettingsJson(doc["settings"]);
+  
+  
+  if (doc["settings"]) {
+    Serial.println("Have Settings ");
+    processSettingsJson(doc);
     return;
   }
 
