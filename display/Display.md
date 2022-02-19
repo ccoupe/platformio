@@ -108,6 +108,7 @@ homie/<device>ranger/distance   <integer-centimeters>
   "blank-after": <n>    // screens goes blank <n> seconds after last message.
   "scroll: <bool>       // may not work with guide mode, default: false
   "ttl": <secs>         // set default scroll buffer messages ttl
+  "font": <n>           // default font 1-largest, 2 Medium, 3 small.
   }
   
   Scroll_lines[10]; lines[incr(next_line)] = {"text": ....} message
@@ -136,6 +137,5 @@ homie/<device>ranger/distance   <integer-centimeters>
 <std-color> := BLACK|WHITE|RED|GREEN|BLUE|YELLOW. 
 
 <font> and <size> 
-  This is a font number in the device (firmware) not a name. Size is a multiplier
-  so 2 is double, 3 is triple. - None of these is guaranteed for any
-  particular device. The font will have to be compiled it. 
+  This is a font number in the device (firmware) not a name. 1 is the 
+  largest, 3 is the smallest (compiled into esp32 devices).

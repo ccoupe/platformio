@@ -320,6 +320,9 @@ void loop() {
 #ifdef RANGER
   int newd;
   if (xSemaphoreTake(timerSemaphore, 0) == pdTRUE) {
+#ifdef DISPLAYG
+    displayLoop();
+#endif
     keep_alive--;
     if (keep_alive <= 0) {
       keep_alive = keep_alive_rate;
@@ -369,8 +372,12 @@ void loop() {
       }
     }
   }
+#else   // Must be DISPLAYG without RANGER
+  if (xSemaphoreTake(timerSemaphore, 0) == pdTRUE) {
+    displayLoop();
+  }
 #endif
   mqtt_loop();
-  //doRanger(RGR_FREE, 75);  //test
+  
 }
 
