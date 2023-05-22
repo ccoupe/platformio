@@ -1,0 +1,399 @@
+
+/*
+ * 
+ * This detects advertising messages of BLE devices and compares it with stored MAC addresses. 
+ * If one matches, it sends an MQTT message to swithc something
+
+   Copyright <2017> <Andreas Spiess>
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"),
+  to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+  and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+   
+   Based on Neil Kolban's example file: https://github.com/nkolban/ESP32_BLE_Arduino
+ */
+
+#include "BLEDevice.h"
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <LinkedList.h>
+
+
+static BLEAddress *pServerAddress;
+
+#define LED 22
+
+BLEScan* pBLEScan;
+BLEClient*  pClient;
+bool update_req = false;
+String myIPAddr;
+
+// TODO enum
+#define CmdIgn  0
+#define CmdAdd  1
+#define CmdDel  2
+#define CmdUpd  3
+const char *MqttCmds[4];
+
+char mqttTopic[60];
+char mqttPayload[140];
+void myinit() {
+  MqttCmds[CmdIgn] = "ign";
+  MqttCmds[CmdAdd] = "add"; 
+  MqttCmds[CmdDel] = "del";
+  MqttCmds[CmdUpd] = "upd";
+}
+
+class BleDevice {
+  public:
+  char  id[18]; 
+  int   rssi;
+  char  name[20];
+  char  mfgdata[20];
+  int   svcIdCnt;
+  int   svcDtCnt;
+  char  **svcUUIDs;
+  uint  update;
+  int   cmd;
+  bool  addComplete;
+
+  BleDevice() {}
+  BleDevice(const char *arg_addr, int arg_rssi, int time_in) {
+      // copy and convert lower case a-f to A-F
+      if (arg_addr) {
+        for (int i = 0; i < 17; i++) {
+          int c = (int)arg_addr[i];
+          if (c >= 'a' && c <= 'f') 
+            c = c - 32;
+          id[i] = (char)c;
+        }
+      } else {
+        id[0] = '\0';
+      }
+      id[17]= '\0';               // its a c_str too.
+      rssi = arg_rssi;
+      update = time_in;
+      addComplete = false;
+      cmd = CmdIgn;
+      name[0] = '\0';
+      mfgdata[0] = '\0';
+      svcIdCnt = 0;
+      svcDtCnt = 0;
+      svcUUIDs = 0;
+  }
+
+  ~BleDevice() {
+    if (svcUUIDs) { 
+      for (int i = 0; i < svcIdCnt; i++) {
+        free(svcUUIDs[i]);
+      }
+      free(svcUUIDs);
+    }
+  }
+
+ bool equals(BleDevice *dev) {
+    return  strncmp(id, dev->id, 17) == 0;
+  }
+
+ };
+
+LinkedList<BleDevice*> devList = LinkedList<BleDevice*>();
+
+const char* ssid = "CJCNET";
+const char* password = "LostAgain2";
+const char* mqtt_server = "192.168.1.7";  // change for your own MQTT broker address
+#define TOPIC "esp32ble"  // Change for your own topic
+#define PAYLOAD "1"    // change for your own payload
+
+// unsigned long entry;
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+void MQTTcallback(char* topic, byte* payload, unsigned int length);
+
+static void notifyCallback(
+  BLERemoteCharacteristic* pBLERemoteCharacteristic,
+  uint8_t* pData,
+  size_t length,
+  bool isNotify) {
+  Serial.print("Notify callback for characteristic ");
+  Serial.print(pBLERemoteCharacteristic->getUUID().toString().c_str());
+  Serial.print(" of data length ");
+  Serial.println(length);
+}
+
+
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+    /*
+        Called for each advertising BLE server.
+    */
+    void onResult(BLEAdvertisedDevice advertisedDevice) {      
+      //Serial.print("BLE Advertised Device found: ");
+      //Serial.println(advertisedDevice.toString().c_str());
+      pServerAddress = new BLEAddress(advertisedDevice.getAddress());
+
+      BleDevice *dev = new BleDevice(pServerAddress->toString().c_str(),
+                                    advertisedDevice.getRSSI(), millis()); 
+
+      int i;
+      bool known = false;
+      BleDevice *ent;
+      for (i = 0; i < devList.size(); i++) {
+        ent = devList.get(i);
+        if (ent->equals(dev)) {
+          known = true;
+          break;
+        }
+      }
+      int nowtime = millis();
+      if (known) {
+        // check rssi and time stamps
+        if (ent->rssi < -100) {            // too weak to use? does that even make sense?
+          ent->update = nowtime - 2;       // make it pruneable
+          Serial.print("D");
+          ent->cmd = CmdDel;
+        } else if (ent->addComplete == true) { // been to MQTT. This is app level real rescan
+          // active device but we want an update sent after 2 minutes.
+          if (nowtime >= ent->update) {
+            ent->update  = nowtime + 120000; // check again, when this time passes
+            ent->cmd = CmdUpd;
+            Serial.print("U");
+          } else {
+            ent->cmd = CmdIgn;
+            Serial.print(".");
+          }
+        }
+        // free up the key (dev) object
+        delete(dev);
+      } else {
+        // Brand new. Lots of work.
+        dev->update = nowtime + 120000;   // check when this time passes
+        dev->cmd = CmdAdd;
+        if (advertisedDevice.haveName()) {
+          const char *nm = advertisedDevice.getName().c_str();
+          int len = strlen(nm);
+          if (len > 19) len=19;
+          strncpy(dev->name, advertisedDevice.getName().c_str(), len);
+          dev->name[len]='\0';
+        } 
+        if (advertisedDevice.haveManufacturerData()) {
+          const char *nm = advertisedDevice.getManufacturerData().c_str();
+          int len = strlen(nm);
+          if (len > 19) len=19;
+          strncpy(dev->mfgdata, advertisedDevice.getManufacturerData().c_str(), len);
+          dev->mfgdata[len]='\0';
+        }
+        if (advertisedDevice.haveServiceUUID()) {
+          dev->svcIdCnt = advertisedDevice.getServiceUUIDCount();
+          if (dev->svcIdCnt > 0) 
+            dev->svcUUIDs = (char **)malloc(sizeof(char *) * dev->svcIdCnt);
+          for (int i = 0; i < dev->svcIdCnt; i++) {
+            BLEUUID uuid = advertisedDevice.getServiceUUID();
+            const char *p = uuid.toString().c_str();
+            int l = strlen(p);
+            if (l > 36)
+              l = 36;
+            char *np = (char *)malloc(l);
+            strncpy(np, p, l);
+            np[l] = '\0';
+            dev->svcUUIDs[i] = np;
+          }
+        if (advertisedDevice.haveServiceData()) {
+            dev->svcDtCnt =  advertisedDevice.getServiceDataCount();
+        }
+        devList.add(dev);
+        Serial.print("+");
+      }
+    }
+    }
+}; // MyAdvertisedDeviceCallbacks
+
+bool have_updates() {
+  bool rtn = false;
+  for (int i = 0; i < devList.size(); i++) {
+    if (devList.get(i)->cmd != CmdIgn) {
+      return true;
+    }
+  }
+  return rtn;
+}
+
+void sendMessage() {
+  //btStop();
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  int entry = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    if (millis() - entry >= 15000) esp_restart();
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("WiFi connected from");
+  Serial.println();
+  mqttClient.setServer(mqtt_server, 1883);
+  mqttClient.setCallback(MQTTcallback);
+  myIPAddr = WiFi.localIP().toString();
+  Serial.println(myIPAddr);
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (mqttClient.connect("ESP8266Client", "", "")) {
+      Serial.println("connected");
+      BleDevice *ent;
+      int cnt = devList.size();
+      uint nowtime = millis();
+      int deltbl[cnt];
+      int delidx = 0;
+      for (int i = 0; i < cnt; i++ ) {
+        ent = devList.get(i);
+        // check for dropped out / no answer to scan
+        if (nowtime > ent->update) {
+          /*
+          Serial.print(ent->id);
+          Serial.print(" now ");
+          Serial.print(nowtime);
+          Serial.print(" when ");
+          Serial.print(ent->update);
+          Serial.println(" deleted");
+          */
+          ent->cmd = CmdDel;
+        }
+        if (ent->cmd != CmdIgn) {
+          sprintf(mqttTopic, "%s/%s/%s", TOPIC, myIPAddr.c_str(),ent->id);
+          sprintf(mqttPayload, "{\"cmd\":\"%s\", \"rssi\":%d",
+               MqttCmds[ent->cmd], ent->rssi);
+          char tmp[50];
+          if (strlen(ent->name) > 0) {
+            sprintf(tmp, ", \"name\":\"%s\"",  ent->name);
+            strcat(mqttPayload, tmp);
+          }
+          if (strlen(ent->mfgdata) > 0) {
+            sprintf(tmp, ", \"mfgdata\":\"%s\"",  ent->mfgdata);
+            strcat(mqttPayload, tmp);
+          }
+          if (ent->svcIdCnt > 0) {
+            sprintf(tmp, ", \"svcIdCnt\":%d", ent->svcIdCnt);
+            strcat(mqttPayload, tmp);
+            // TODO: support multiple service UUIDs
+            sprintf(tmp, ", \"svcUUIDs\":[\"%s\"]", ent->svcUUIDs[0]);
+            strcat(mqttPayload, tmp);
+          }
+          if (ent->svcDtCnt > 0) {
+            sprintf(tmp, ", \"svcDtCnt\":%d", ent->svcDtCnt);
+            strcat(mqttPayload, tmp);
+          }
+          strcat(mqttPayload, "}");
+          mqttClient.publish(mqttTopic, mqttPayload);
+          mqttClient.loop();
+          delay(250);  // .25 second
+          if (ent->cmd == CmdAdd && ent->addComplete == false)
+            ent->addComplete = true;
+            ent->cmd = CmdIgn;
+        } 
+        if (ent->cmd == CmdDel) {
+          deltbl[delidx++] = i;
+          
+        }
+        Serial.print(MqttCmds[ent->cmd]);
+        Serial.print(" ");
+
+      }
+      // Free up deleted nodes
+      for (int i = 0; i < delidx; i++) {
+        BleDevice *ent = devList.get(deltbl[i]);
+        delete(ent);
+        devList.remove(deltbl[i]);
+      }
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+  for (int i = 0; i > 10; i++) {
+    mqttClient.loop();
+    delay(100);
+  }
+  mqttClient.disconnect();
+  delay(100);
+  WiFi.mode(WIFI_OFF);
+  btStart();
+  Serial.println("\nMqtt Finished");
+}
+
+void MQTTcallback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("Starting Arduino BLE Client application...");
+  //pinMode(LED, OUTPUT);
+  //digitalWrite(LED, HIGH);
+  myIPAddr = WiFi.localIP().toString();
+  myinit();
+  BLEDevice::init("");
+
+  pClient  = BLEDevice::createClient();
+  Serial.print(" - Created client for ");
+  Serial.println(myIPAddr);
+  pBLEScan = BLEDevice::getScan();
+  //pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true);
+}
+
+void loop() {
+
+  Serial.println();
+  Serial.println("BLE Scan restarted.....");
+  delay(1000);
+
+  BLEScanResults scanResults = pBLEScan->start(5);
+
+  int n = scanResults.getCount();
+  Serial.print("Sending ");
+  Serial.print(devList.size());
+  Serial.println(" results to mqtt");
+  if (have_updates()) 
+    sendMessage();
+  else
+    Serial.println("no updates");
+   
+  // Below does not work. Looking at you, scanResults.getDevice(i)
+  for (int i = 0; i < n; i++) {
+      BLEAdvertisedDevice advertisedDevice = scanResults.getDevice(i);
+      Serial.print("Advertised Device found: ");
+      Serial.println(advertisedDevice.toString().c_str());
+      pServerAddress = new BLEAddress(advertisedDevice.getAddress());
+      Serial.print("Addr: ");
+      Serial.print(pServerAddress->toString().c_str());
+      Serial.print(" RSSI: ");
+      Serial.println(advertisedDevice.getRSSI());
+  }
+  
+  delay(40000); // 40 secs
+} // End of loop
